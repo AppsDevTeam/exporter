@@ -12,7 +12,6 @@ use DateTimeImmutable;
 use ADT\DoctrineComponents\EntityManager;
 use Nette\Application\LinkGenerator;
 use Nette\Mail\Mailer;
-use Nette\Mail\Message;
 
 /**
  * Jednotne hrdlo vsech exportu dat:
@@ -37,6 +36,7 @@ final class Exporter
 		private readonly EntityManager $em,
 		private readonly BackgroundQueue $backgroundQueue,
 		private readonly Mailer $mailer,
+		private readonly ExportMailFactory $mailFactory,
 		private readonly LinkGenerator $linkGenerator,
 		private readonly int $syncRowLimit,
 		private readonly string $fileDir,
@@ -151,11 +151,12 @@ final class Exporter
 		$this->generateFile($log, $this->resolveGenerator($generatorClass));
 
 		if ($log->getEmail()) {
-			$message = new Message();
-			$message->addTo($log->getEmail());
-			$message->setSubject('Export je pripraven / Your export is ready');
-			$message->setBody("Soubor ke stazeni / download: " . $this->linkGenerator->link($this->downloadLink, ['id' => $log->getId()]));
-			$this->mailer->send($message);
+			// obsah e-mailu vlastni projekt (ExportMailFactory) - odkaz vede na
+			// aplikacni routu, ktera soubor vyda az po overeni prihlaseni/vlastnictvi
+			$this->mailer->send($this->mailFactory->create(
+				$log,
+				$this->linkGenerator->link($this->downloadLink, ['id' => $log->getId()]),
+			));
 		}
 	}
 

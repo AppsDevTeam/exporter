@@ -63,6 +63,37 @@ if (!$log->isInBackground()) {
 3. Generatory souboru registrovat jako sluzby (implementuji `ExportFileGenerator`,
    extension je poskytne background handleru automaticky).
 
+## E-mail
+
+Obsah e-mailu vlastni projekt: implementuj `ExportMailFactory` jako sluzbu
+(preklady, Latte sablona, branding) - extension ji pouzije automaticky misto
+vestaveneho defaultu. Background job ji dostane z DI, nic se nepredava.
+
+## Bezpecnost stahovani
+
+Odkaz v e-mailu NEVEDE na soubor, ale na aplikacni routu (`downloadLink`).
+Soubor lezi ve `fileDir` MIMO docroot - jedina cesta k nemu je pres presenter,
+ktery MUSI overit prihlaseni a vlastnictvi:
+
+```php
+public function actionDownload(int $id): void
+{
+    $log = $this->exportLogQueryFactory->create()->byId($id)->fetchOneOrNull();
+    if (!$log || !$log->getFile()) {
+        $this->error();
+    }
+    // stahnout smi jen autor exportu (pripadne rozsirit o admin ACL)
+    if ($log->getCreatedBy()?->getId() !== $this->securityUser->getId()) {
+        $this->error('', \Nette\Http\IResponse::S403_Forbidden);
+    }
+    $this->sendResponse(new FileResponse($log->getFile(), basename($log->getFile())));
+}
+```
+
+Neprihlaseneho uzivatele posle bezny auth mechanismus aplikace na login
+a po prihlaseni zpet - odkaz z e-mailu tak funguje kdykoli behem retence
+souboru, ale vzdy jen pro opravneneho.
+
 ## Auditni vlastnosti zaznamu
 
 - vznika VZDY, i pro maly synchronni download
