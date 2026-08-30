@@ -15,8 +15,7 @@ background job (outbox garance adt/background-queue).
 ```php
 $log = $this->exporter->export(new ExportRequest(
     identifier: 'smart-cards',        // typ exportovanych dat (audit)
-    entityClass: SmartCard::class,
-    ids: $ids,                        // presna enumerace radku (audit)
+    source: $queryObject,             // QueryObject | QueryBuilder | pole ID
     columns: ['number' => 'Cislo', ...],
     generator: $excelGenerator,       // sluzba implementujici ExportFileGenerator
     email: $user->getEmail(),
@@ -51,7 +50,10 @@ if (!$log->isInBackground()) {
 ## Auditni vlastnosti zaznamu
 
 - vznika VZDY, i pro maly synchronni download
-- `ids` = presny vycet exportovanych radku (silnejsi nez SQL/filtry)
+- selekce se materializuje V OKAMZIKU volani: `ids` = presny vycet radku
+  (query nejde serializovat do jobu a pozdejsi prehrani by neodpovidalo
+  dorucenemu souboru)
+- `metadata.dql` + `metadata.parameters` = jak byla selekce definovana
 - `filters` + `identifier` = citelny kontext pro auditora
 - zaznam se po vytvoreni needituje (jen doplneni file/processedAt); dlouhodobou
   retenci resi mover do auditniho uloziste (viz projektova infrastruktura)

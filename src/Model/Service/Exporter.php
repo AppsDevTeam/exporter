@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace ADT\Exporter\Model\Service;
 
 use ADT\BackgroundQueue\BackgroundQueue;
+use ADT\DoctrineComponents\QueryObject\QueryObjectInterface;
 use ADT\Exporter\Model\Entities\ExportLog;
+use Doctrine\ORM\QueryBuilder;
 use DateTimeImmutable;
 use ADT\DoctrineComponents\EntityManager;
 use Nette\Application\LinkGenerator;
@@ -43,18 +45,20 @@ final class Exporter
 
 	public function export(ExportRequest $request): ExportLog
 	{
+		[$ids, $entityClass, $queryAudit] = $this->materialize($request);
+
 		/** @var ExportLog $log */
 		$log = new ($this->em->findEntityClassByInterface(ExportLog::class));
 		$log->setIdentifier($request->identifier)
-			->setEntityClass($request->entityClass)
-			->setIds(array_values($request->ids))
+			->setEntityClass($entityClass)
+			->setIds($ids)
 			->setColumns($request->columns)
 			->setFilters($request->filters)
-			->setRowCount(count($request->ids))
+			->setRowCount(count($ids))
 			->setEmail($request->email)
-			->setMetadata(($request->metadata ?? []) + ['generator' => get_class($request->generator)]);
+			->setMetadata(($request->metadata ?? []) + ['generator' => get_class($request->generator)] + $queryAudit);
 
-		if (count($request->ids) > $this->syncRowLimit) {
+		if (count($ids) > $this->syncRowLimit) {
 			$log->setInBackground(true);
 			// log i job v jedne transakci - zadny export bez auditu, zadny audit bez jobu
 			$this->em->wrapInTransaction(function () use ($log) {
@@ -69,6 +73,57 @@ final class Exporter
 		$this->em->flush();
 		$this->generateFile($log, $request->generator);
 		return $log;
+	}
+
+	/**
+	 * Materializace selekce v okamziku volani: seznam ID + entity class +
+	 * DQL s parametry jako auditni kontext. Query se do jobu NEserializuje
+	 * a nikdy se neprehravava pozdeji (audit = stav pri kliknuti).
+	 * @return array{0: array, 1: string, 2: array}
+	 */
+	private function materialize(ExportRequest $request): array
+	{
+		$source = $request->source;
+
+		if (is_array($source)) {
+			$entityClass = $request->entityClass
+				?? throw new \InvalidArgumentException('Pro pole ID je nutne predat entityClass.');
+			return [array_values($source), $entityClass, []];
+		}
+
+		if ($source instanceof QueryObjectInterface) {
+			$query = $source->getQuery();
+			$ids = array_values($source->fetchField('id'));
+			return [$ids, $source->getEntityClass(), [
+				'dql' => $query->getDQL(),
+				'parameters' => self::serializeParameters($query->getParameters()),
+			]];
+		}
+
+		/** @var QueryBuilder $source */
+		$entityClass = $source->getRootEntities()[0];
+		$idQb = (clone $source)->select(sprintf('%s.id', $source->getRootAliases()[0]))->distinct();
+		$ids = array_map('current', $idQb->getQuery()->getScalarResult());
+		return [$ids, $entityClass, [
+			'dql' => $source->getDQL(),
+			'parameters' => self::serializeParameters($source->getParameters()),
+		]];
+	}
+
+	private static function serializeParameters(iterable $parameters): array
+	{
+		$out = [];
+		foreach ($parameters as $p) {
+			$v = $p->getValue();
+			$out[$p->getName()] = match (true) {
+				$v instanceof \DateTimeInterface => $v->format(DATE_ATOM),
+				is_object($v) && method_exists($v, 'getId') => get_class($v) . '#' . $v->getId(),
+				is_object($v) => get_class($v),
+				is_array($v) => array_slice(array_map(fn ($i) => is_object($i) && method_exists($i, 'getId') ? $i->getId() : $i, $v), 0, 1000),
+				default => $v,
+			};
+		}
+		return $out;
 	}
 
 	/** Queue callback - generovani na pozadi + e-mail s odkazem */
