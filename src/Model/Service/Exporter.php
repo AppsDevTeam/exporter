@@ -54,7 +54,8 @@ final class Exporter
 
 		/** @var ExportLog $log */
 		$log = new ($this->em->findEntityClassByInterface(ExportLog::class));
-		$log->setIdentifier($request->identifier)
+		$log->setCreatedAt(new DateTimeImmutable())
+			->setIdentifier($request->identifier)
 			->setSections($sections)
 			->setFilters($request->filters)
 			->setRowCount($rowCount)
@@ -198,6 +199,31 @@ final class Exporter
 
 		$log->setFile($target)->setProcessedAt(new DateTimeImmutable());
 		$this->em->flush();
+	}
+
+	/**
+	 * Smaze vygenerovane SOUBORY starsi nez $retentionDays (auditni zaznam
+	 * zustava po celou svou retenci - jen prijde o soubor; download pak vrati
+	 * chybu "export expiroval"). Exportovana data nesmi lezet na disku dele,
+	 * nez je nutne pro doruceni - viz retencni politika projektu.
+	 */
+	public function purgeFiles(int $retentionDays): int
+	{
+		$threshold = new DateTimeImmutable("-{$retentionDays} days");
+		$purged = 0;
+		$logs = $this->em->getRepository($this->em->findEntityClassByInterface(ExportLog::class))
+			->createQueryBuilder('e')
+			->where('e.file IS NOT NULL')->andWhere('e.processedAt < :t')->setParameter('t', $threshold)
+			->getQuery()->getResult();
+		foreach ($logs as $log) {
+			if (is_file($log->getFile())) {
+				unlink($log->getFile());
+			}
+			$log->setFile(null);
+			$purged++;
+		}
+		$this->em->flush();
+		return $purged;
 	}
 
 	/** @internal registrace generatoru z DI (viz ExporterExtension) */

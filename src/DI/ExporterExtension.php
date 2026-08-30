@@ -7,6 +7,7 @@ namespace ADT\Exporter\DI;
 use ADT\Exporter\Model\Service\DefaultExportMailFactory;
 use ADT\Exporter\Model\Service\ExportFileGenerator;
 use ADT\Exporter\Model\Service\ExportMailFactory;
+use ADT\Exporter\Console\PurgeExportFilesCommand;
 use ADT\Exporter\Model\Service\Exporter;
 use Nette\DI\CompilerExtension;
 use Nette\Schema\Expect;
@@ -31,6 +32,7 @@ class ExporterExtension extends CompilerExtension
 	{
 		return Expect::structure([
 			'syncRowLimit' => Expect::int(500),
+			'fileRetentionDays' => Expect::int(7),
 			'fileDir' => Expect::string()->required(),
 			'downloadLink' => Expect::string()->required(),
 		]);
@@ -47,6 +49,10 @@ class ExporterExtension extends CompilerExtension
 				'fileDir' => $config->fileDir,
 				'downloadLink' => $config->downloadLink,
 			]);
+
+		$builder->addDefinition($this->prefix('purgeExportFilesCommand'))
+			->setFactory(PurgeExportFilesCommand::class, ['defaultRetentionDays' => $config->fileRetentionDays])
+			->setAutowired(false);
 	}
 
 	public function beforeCompile(): void

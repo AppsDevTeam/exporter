@@ -51,4 +51,7 @@ interface ExportLog
 
 	public function getMetadata(): ?array;
 	public function setMetadata(?array $metadata): static;
+
+	public function getCreatedAt(): DateTimeImmutable;
+	public function setCreatedAt(DateTimeImmutable $createdAt): static;
 }

@@ -36,6 +36,9 @@ trait ExportLogTrait
 	#[Column(type: 'json', nullable: true)]
 	protected ?array $metadata = null;
 
+	#[Column]
+	protected DateTimeImmutable $createdAt;
+
 	public function getIdentifier(): string { return $this->identifier; }
 	public function setIdentifier(string $identifier): static { $this->identifier = $identifier; return $this; }
 
@@ -62,4 +65,7 @@ trait ExportLogTrait
 
 	public function getMetadata(): ?array { return $this->metadata; }
 	public function setMetadata(?array $metadata): static { $this->metadata = $metadata; return $this; }
+
+	public function getCreatedAt(): DateTimeImmutable { return $this->createdAt; }
+	public function setCreatedAt(DateTimeImmutable $createdAt): static { $this->createdAt = $createdAt; return $this; }
 }

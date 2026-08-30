@@ -94,6 +94,19 @@ Neprihlaseneho uzivatele posle bezny auth mechanismus aplikace na login
 a po prihlaseni zpet - odkaz z e-mailu tak funguje kdykoli behem retence
 souboru, ale vzdy jen pro opravneneho.
 
+## Retence souboru
+
+Vygenerovane soubory nesmi na disku lezet dele, nez je nutne pro doruceni
+(obsahuji exportovana, casto osobni data). Denni cron:
+
+```
+0 3 * * * php bin/console exporter:purge-files
+```
+
+maze soubory starsi nez `fileRetentionDays` (default 7). Auditni zaznam
+zustava po celou svou retenci - jen prijde o soubor; download expirovaneho
+exportu vrati chybu.
+
 ## Auditni vlastnosti zaznamu
 
 - vznika VZDY, i pro maly synchronni download
