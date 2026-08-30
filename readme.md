@@ -56,9 +56,12 @@ if (!$export->isInBackground()) {
 
 ## Instalace v aplikaci
 
-1. Entity: `Export` (ExportTrait) a `ExportLog` (ExportLogTrait), obe
-   + vlastni id/createdBy atributy; migrace. Volitelne vlastni
-   `ExportFileStorage` nad aplikacnim File ekosystemem (jinak lokalni default).
+1. Entita `Export` (ExportTrait + vlastni id/createdBy atributy) v aplikaci;
+   `ExportLog` je FINALNI entita knihovny - staci pridat mapping
+   (`vendor/adt/exporter/src/Model/Entities`) a migraci. Volitelne vlastni
+   `ExportFileStorage` (soubory pres aplikacni File ekosystem) a
+   `ExportActorProvider` (akter auditu ze SecurityUser) - obe sluzby si
+   extension najde podle typu.
 2. Neon:
    ```neon
    extensions:
@@ -121,6 +124,9 @@ exportu vrati chybu.
 ## Auditni vlastnosti zaznamu
 
 - vznika VZDY, i pro maly synchronni download
+- zaznam je NEMENNY (final entita bez setteru) a aktera nese DENORMALIZOVANE
+  (id + jmeno + e-mail v okamziku akce, zadna FK relace) - nezavisi na zbytku
+  databaze a prezije odvoz do externiho auditniho uloziste
 - selekce KAZDE sekce se materializuje V OKAMZIKU volani: entity sekce nesou
   presny vycet ID + DQL s parametry, agregatove sekce primo snapshot radku
   (query nejde serializovat do jobu a pozdejsi prehrani by neodpovidalo

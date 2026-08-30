@@ -40,6 +40,7 @@ final class Exporter
 		private readonly Mailer $mailer,
 		private readonly ExportMailFactory $mailFactory,
 		private readonly ExportFileStorage $fileStorage,
+		private readonly ExportActorProvider $actorProvider,
 		private readonly LinkGenerator $linkGenerator,
 		private readonly int $syncRowLimit,
 		private readonly string $downloadLink,
@@ -64,23 +65,27 @@ final class Exporter
 			->setEmail($request->email)
 			->setInBackground($request->forceBackground || $rowCount > $this->syncRowLimit);
 
-		/** @var ExportLog $log */
-		$log = new ($this->em->findEntityClassByInterface(ExportLog::class));
-		$log->setCreatedAt($now)
-			->setIdentifier($request->identifier)
-			->setSections($sections)
-			->setFilters($request->filters)
-			->setRowCount($rowCount)
-			->setEmail($request->email)
-			->setMetadata(($request->metadata ?? []) + ['generator' => get_class($request->generator)]);
+		$actor = $this->actorProvider->getActor();
 
 		// audit + provozni zaznam + job v JEDNE transakci: zadny export bez
-		// auditu, zadny audit bez exportu, zadny job bez obojiho
-		$this->em->wrapInTransaction(function () use ($export, $log) {
+		// auditu, zadny audit bez exportu, zadny job bez obojiho. Auditni
+		// zaznam je nemenny (konstruktor) a aktera nese denormalizovane.
+		$this->em->wrapInTransaction(function () use ($export, $request, $sections, $rowCount, $now, $actor) {
 			$this->em->persist($export);
 			$this->em->flush();
-			$log->setExportId($export->getId());
-			$this->em->persist($log);
+			$this->em->persist(new ExportLog(
+				createdAt: $now,
+				identifier: $request->identifier,
+				sections: $sections,
+				rowCount: $rowCount,
+				filters: $request->filters,
+				email: $request->email,
+				exportId: $export->getId(),
+				metadata: ($request->metadata ?? []) + ['generator' => get_class($request->generator)],
+				createdById: $actor?->id !== null ? (string) $actor->id : null,
+				createdByName: $actor?->name,
+				createdByEmail: $actor?->email,
+			));
 			$this->em->flush();
 			if ($export->isInBackground()) {
 				$this->backgroundQueue->publish(self::QUEUE_CALLBACK, ['exportId' => $export->getId()]);
@@ -110,7 +115,7 @@ final class Exporter
 			return; // idempotence pri retry
 		}
 
-		$log = $this->em->getRepository($this->em->findEntityClassByInterface(ExportLog::class))
+		$log = $this->em->getRepository(ExportLog::class)
 			->findOneBy(['exportId' => $export->getId()]);
 		$generatorClass = $log?->getMetadata()['generator']
 			?? throw new \RuntimeException("Export {$export->getId()}: chybi auditni zaznam s generatorem.");

@@ -8,9 +8,11 @@ use ADT\Exporter\Model\Service\DefaultExportMailFactory;
 use ADT\Exporter\Model\Service\ExportFileGenerator;
 use ADT\Exporter\Model\Service\ExportMailFactory;
 use ADT\Exporter\Console\PurgeExportFilesCommand;
+use ADT\Exporter\Model\Service\ExportActorProvider;
 use ADT\Exporter\Model\Service\ExportFileStorage;
 use ADT\Exporter\Model\Service\Exporter;
 use ADT\Exporter\Model\Service\LocalExportFileStorage;
+use ADT\Exporter\Model\Service\NullExportActorProvider;
 use Nette\DI\CompilerExtension;
 use Nette\Schema\Expect;
 use Nette\Schema\Schema;
@@ -67,6 +69,13 @@ class ExporterExtension extends CompilerExtension
 		if (!$builder->findByType(ExportMailFactory::class)) {
 			$builder->addDefinition($this->prefix('mailFactory'))
 				->setType(DefaultExportMailFactory::class);
+		}
+
+		// aktera dodava aplikace (SecurityUser) - bez vlastni sluzby se
+		// audituje bez aktera (cron/CLI kontexty)
+		if (!$builder->findByType(ExportActorProvider::class)) {
+			$builder->addDefinition($this->prefix('actorProvider'))
+				->setType(NullExportActorProvider::class);
 		}
 
 		// uloziste souboru vlastni projekt (napr. adt/files) - default lokalni
