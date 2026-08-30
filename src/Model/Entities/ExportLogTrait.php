@@ -12,14 +12,8 @@ trait ExportLogTrait
 	#[Column]
 	protected string $identifier;
 
-	#[Column]
-	protected string $entityClass;
-
 	#[Column(type: 'json')]
-	protected array $ids = [];
-
-	#[Column(type: 'json')]
-	protected array $columns = [];
+	protected array $sections = [];
 
 	#[Column(type: 'json', nullable: true)]
 	protected ?array $filters = null;
@@ -45,14 +39,8 @@ trait ExportLogTrait
 	public function getIdentifier(): string { return $this->identifier; }
 	public function setIdentifier(string $identifier): static { $this->identifier = $identifier; return $this; }
 
-	public function getEntityClass(): string { return $this->entityClass; }
-	public function setEntityClass(string $entityClass): static { $this->entityClass = $entityClass; return $this; }
-
-	public function getIds(): array { return $this->ids; }
-	public function setIds(array $ids): static { $this->ids = $ids; return $this; }
-
-	public function getColumns(): array { return $this->columns; }
-	public function setColumns(array $columns): static { $this->columns = $columns; return $this; }
+	public function getSections(): array { return $this->sections; }
+	public function setSections(array $sections): static { $this->sections = $sections; return $this; }
 
 	public function getFilters(): ?array { return $this->filters; }
 	public function setFilters(?array $filters): static { $this->filters = $filters; return $this; }

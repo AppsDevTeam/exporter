@@ -22,15 +22,13 @@ interface ExportLog
 	public function getIdentifier(): string;
 	public function setIdentifier(string $identifier): static;
 
-	public function getEntityClass(): string;
-	public function setEntityClass(string $entityClass): static;
-
-	/** @return int[]|string[] presna enumerace exportovanych radku */
-	public function getIds(): array;
-	public function setIds(array $ids): static;
-
-	public function getColumns(): array;
-	public function setColumns(array $columns): static;
+	/**
+	 * Sekce exportu: [{name, entityClass|null, ids|null, rows|null, columns,
+	 * dql|null, parameters|null}, ...]. Entity sekce nesou presnou enumeraci
+	 * ID (+ definici dotazu), raw sekce primo snapshot radku.
+	 */
+	public function getSections(): array;
+	public function setSections(array $sections): static;
 
 	/** Stav filtru v okamziku exportu - auditni kontext ("pouzite filtry") */
 	public function getFilters(): ?array;

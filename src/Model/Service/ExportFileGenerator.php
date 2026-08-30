@@ -15,9 +15,10 @@ namespace ADT\Exporter\Model\Service;
 interface ExportFileGenerator
 {
 	/**
-	 * @param object[] $items nactene entity v poradi dle ExportLog.ids
-	 * @param array $columns ['sloupec' => 'Popisek', ...]
+	 * @param array<string, array{items: array, columns: array}> $sections
+	 *        nazev sekce => data; items jsou entity NEBO raw radky (pole poli)
+	 *        dle typu sekce, v poradi dle auditniho zaznamu
 	 * @return string absolutni cesta k vytvorenemu souboru
 	 */
-	public function generate(array $items, array $columns, string $identifier): string;
+	public function generate(array $sections, string $identifier): string;
 }

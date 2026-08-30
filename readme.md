@@ -12,14 +12,30 @@ background job (outbox garance adt/background-queue).
 
 ## Pouziti
 
+Format (CSV/Excel/...) urcuje predany generator; pocet sekci urcuje obsah
+(Excel: sheet per sekce, CSV: prave jedna sekce).
+
 ```php
+// jednoducha tabulka (grid):
 $log = $this->exporter->export(new ExportRequest(
-    identifier: 'smart-cards',        // typ exportovanych dat (audit)
-    source: $queryObject,             // QueryObject | QueryBuilder | pole ID
-    columns: ['number' => 'Cislo', ...],
-    generator: $excelGenerator,       // sluzba implementujici ExportFileGenerator
+    identifier: 'smart-cards',
+    sections: new ExportSection('items', $queryObject, ['number' => 'Cislo', ...]),
+    generator: $excelGenerator,       // vs. $csvGenerator = volba formatu
     email: $user->getEmail(),
-    filters: $filterState,            // stav filtru (audit)
+    filters: $filterState,
+));
+
+// vicesheetovy report (ruzne zdroje, vcetne agregatu bez entit):
+$log = $this->exporter->export(new ExportRequest(
+    identifier: 'order-payments',
+    sections: [
+        new ExportSection('Items', $orderItemsQb, $itemColumns),
+        new ExportSection('Payments', $paymentsQb, $paymentColumns),
+        new ExportSection('Summary', $summaryRows, $summaryColumns), // pole poli = snapshot primo v auditu
+    ],
+    generator: $excelGenerator,
+    email: $user->getEmail(),
+    filters: ['from' => ..., 'to' => ..., 'companies' => ...],
 ));
 
 if (!$log->isInBackground()) {
@@ -50,10 +66,10 @@ if (!$log->isInBackground()) {
 ## Auditni vlastnosti zaznamu
 
 - vznika VZDY, i pro maly synchronni download
-- selekce se materializuje V OKAMZIKU volani: `ids` = presny vycet radku
+- selekce KAZDE sekce se materializuje V OKAMZIKU volani: entity sekce nesou
+  presny vycet ID + DQL s parametry, agregatove sekce primo snapshot radku
   (query nejde serializovat do jobu a pozdejsi prehrani by neodpovidalo
   dorucenemu souboru)
-- `metadata.dql` + `metadata.parameters` = jak byla selekce definovana
 - `filters` + `identifier` = citelny kontext pro auditora
 - zaznam se po vytvoreni needituje (jen doplneni file/processedAt); dlouhodobou
   retenci resi mover do auditniho uloziste (viz projektova infrastruktura)

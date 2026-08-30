@@ -45,20 +45,23 @@ final class Exporter
 
 	public function export(ExportRequest $request): ExportLog
 	{
-		[$ids, $entityClass, $queryAudit] = $this->materialize($request);
+		$sections = [];
+		$rowCount = 0;
+		foreach ($request->sections as $section) {
+			$sections[] = $s = $this->materializeSection($section);
+			$rowCount += $s['ids'] !== null ? count($s['ids']) : count($s['rows']);
+		}
 
 		/** @var ExportLog $log */
 		$log = new ($this->em->findEntityClassByInterface(ExportLog::class));
 		$log->setIdentifier($request->identifier)
-			->setEntityClass($entityClass)
-			->setIds($ids)
-			->setColumns($request->columns)
+			->setSections($sections)
 			->setFilters($request->filters)
-			->setRowCount(count($ids))
+			->setRowCount($rowCount)
 			->setEmail($request->email)
-			->setMetadata(($request->metadata ?? []) + ['generator' => get_class($request->generator)] + $queryAudit);
+			->setMetadata(($request->metadata ?? []) + ['generator' => get_class($request->generator)]);
 
-		if (count($ids) > $this->syncRowLimit) {
+		if ($rowCount > $this->syncRowLimit) {
 			$log->setInBackground(true);
 			// log i job v jedne transakci - zadny export bez auditu, zadny audit bez jobu
 			$this->em->wrapInTransaction(function () use ($log) {
@@ -76,38 +79,46 @@ final class Exporter
 	}
 
 	/**
-	 * Materializace selekce v okamziku volani: seznam ID + entity class +
-	 * DQL s parametry jako auditni kontext. Query se do jobu NEserializuje
-	 * a nikdy se neprehravava pozdeji (audit = stav pri kliknuti).
-	 * @return array{0: array, 1: string, 2: array}
+	 * Materializace sekce v okamziku volani. Entity zdroje -> seznam ID
+	 * (+ DQL s parametry jako auditni kontext); query se do jobu NEserializuje
+	 * a nikdy se neprehravava pozdeji (audit = stav pri kliknuti). Raw radky
+	 * (agregaty) se ukladaji primo do zaznamu.
 	 */
-	private function materialize(ExportRequest $request): array
+	private function materializeSection(ExportSection $section): array
 	{
-		$source = $request->source;
+		$out = ['name' => $section->name, 'columns' => $section->columns,
+			'entityClass' => null, 'ids' => null, 'rows' => null, 'dql' => null, 'parameters' => null];
+
+		$source = $section->source;
+
+		if ($section->isRawRows()) {
+			$out['rows'] = array_values($source);
+			return $out;
+		}
 
 		if (is_array($source)) {
-			$entityClass = $request->entityClass
-				?? throw new \InvalidArgumentException('Pro pole ID je nutne predat entityClass.');
-			return [array_values($source), $entityClass, []];
+			$out['entityClass'] = $section->entityClass
+				?? throw new \InvalidArgumentException("Sekce '{$section->name}': pro pole ID je nutne predat entityClass.");
+			$out['ids'] = array_values($source);
+			return $out;
 		}
 
 		if ($source instanceof QueryObjectInterface) {
 			$query = $source->getQuery();
-			$ids = array_values($source->fetchField('id'));
-			return [$ids, $source->getEntityClass(), [
-				'dql' => $query->getDQL(),
-				'parameters' => self::serializeParameters($query->getParameters()),
-			]];
+			$out['entityClass'] = $source->getEntityClass();
+			$out['ids'] = array_values($source->fetchField('id'));
+			$out['dql'] = $query->getDQL();
+			$out['parameters'] = self::serializeParameters($query->getParameters());
+			return $out;
 		}
 
 		/** @var QueryBuilder $source */
-		$entityClass = $source->getRootEntities()[0];
+		$out['entityClass'] = $source->getRootEntities()[0];
 		$idQb = (clone $source)->select(sprintf('%s.id', $source->getRootAliases()[0]))->distinct();
-		$ids = array_map('current', $idQb->getQuery()->getScalarResult());
-		return [$ids, $entityClass, [
-			'dql' => $source->getDQL(),
-			'parameters' => self::serializeParameters($source->getParameters()),
-		]];
+		$out['ids'] = array_map('current', $idQb->getQuery()->getScalarResult());
+		$out['dql'] = $source->getDQL();
+		$out['parameters'] = self::serializeParameters($source->getParameters());
+		return $out;
 	}
 
 	private static function serializeParameters(iterable $parameters): array
@@ -152,23 +163,31 @@ final class Exporter
 	{
 		ini_set('memory_limit', '10G');
 
-		// nacteni po davkach dle ulozenych ids - poradi dle ids zachovano
-		$items = [];
-		foreach (array_chunk($log->getIds(), 5000) as $chunk) {
-			foreach ($this->em->getRepository($log->getEntityClass())
-				->createQueryBuilder('e')->where('e.id IN (:ids)')->setParameter('ids', $chunk)
-				->getQuery()->getResult() as $item) {
-				$items[(string) $item->getId()] = $item;
+		$sections = [];
+		foreach ($log->getSections() as $section) {
+			if ($section['rows'] !== null) {
+				$sections[$section['name']] = ['items' => $section['rows'], 'columns' => $section['columns']];
+				continue;
 			}
-		}
-		$ordered = [];
-		foreach ($log->getIds() as $id) {
-			if (isset($items[(string) $id])) {
-				$ordered[] = $items[(string) $id];
+			// nacteni po davkach dle ulozenych ids - poradi dle ids zachovano
+			$items = [];
+			foreach (array_chunk($section['ids'], 5000) as $chunk) {
+				foreach ($this->em->getRepository($section['entityClass'])
+					->createQueryBuilder('e')->where('e.id IN (:ids)')->setParameter('ids', $chunk)
+					->getQuery()->getResult() as $item) {
+					$items[(string) $item->getId()] = $item;
+				}
 			}
+			$ordered = [];
+			foreach ($section['ids'] as $id) {
+				if (isset($items[(string) $id])) {
+					$ordered[] = $items[(string) $id];
+				}
+			}
+			$sections[$section['name']] = ['items' => $ordered, 'columns' => $section['columns']];
 		}
 
-		$path = $generator->generate($ordered, $log->getColumns(), $log->getIdentifier());
+		$path = $generator->generate($sections, $log->getIdentifier());
 
 		if (!is_dir($this->fileDir)) {
 			mkdir($this->fileDir, 0770, true);
