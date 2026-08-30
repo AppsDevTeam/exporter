@@ -7,13 +7,13 @@ namespace ADT\Exporter\Model\Entities;
 use DateTimeImmutable;
 
 /**
- * Auditni zaznam exportu dat - "co presne opustilo system, kdo a kdy".
- * Aplikace implementuje vlastni entitou (ExportLogTrait + vlastni id/createdAt/
- * createdBy atributy), stejny vzor jako GridExport ci AuthLog.
+ * AUDITNI zaznam exportu dat - "co presne opustilo system, kdo a kdy".
+ * Append-only, BEZ vazby na soubor a stav zpracovani (to je provozni entita
+ * Export) - zaznam je tak pripraveny na odvoz moverem do dlouhodobeho
+ * auditniho uloziste, nezavisle na zivotnim cyklu exportu.
  *
- * Zaznam vznika VZDY (i u synchronniho downloadu) a ve stejne transakci jako
- * pripadny background job. Nikdy se needituje krome doplneni file/processedAt
- * po vygenerovani souboru.
+ * Vznika VZDY (i u synchronniho downloadu) a ve stejne transakci jako
+ * provozni zaznam a pripadny background job. Po vytvoreni se NIKDY needituje.
  */
 interface ExportLog
 {
@@ -40,14 +40,9 @@ interface ExportLog
 	public function getEmail(): ?string;
 	public function setEmail(?string $email): static;
 
-	public function isInBackground(): bool;
-	public function setInBackground(bool $inBackground): static;
-
-	public function getFile(): ?string;
-	public function setFile(?string $file): static;
-
-	public function getProcessedAt(): ?DateTimeImmutable;
-	public function setProcessedAt(?DateTimeImmutable $processedAt): static;
+	/** vazba na provozni zaznam (ten muze casem zaniknout, audit ne) */
+	public function getExportId(): ?int;
+	public function setExportId(?int $exportId): static;
 
 	public function getMetadata(): ?array;
 	public function setMetadata(?array $metadata): static;

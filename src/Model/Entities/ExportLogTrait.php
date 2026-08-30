@@ -24,14 +24,8 @@ trait ExportLogTrait
 	#[Column(nullable: true)]
 	protected ?string $email = null;
 
-	#[Column]
-	protected bool $inBackground = false;
-
 	#[Column(nullable: true)]
-	protected ?string $file = null;
-
-	#[Column(nullable: true)]
-	protected ?DateTimeImmutable $processedAt = null;
+	protected ?int $exportId = null;
 
 	#[Column(type: 'json', nullable: true)]
 	protected ?array $metadata = null;
@@ -54,14 +48,8 @@ trait ExportLogTrait
 	public function getEmail(): ?string { return $this->email; }
 	public function setEmail(?string $email): static { $this->email = $email; return $this; }
 
-	public function isInBackground(): bool { return $this->inBackground; }
-	public function setInBackground(bool $inBackground): static { $this->inBackground = $inBackground; return $this; }
-
-	public function getFile(): ?string { return $this->file; }
-	public function setFile(?string $file): static { $this->file = $file; return $this; }
-
-	public function getProcessedAt(): ?DateTimeImmutable { return $this->processedAt; }
-	public function setProcessedAt(?DateTimeImmutable $processedAt): static { $this->processedAt = $processedAt; return $this; }
+	public function getExportId(): ?int { return $this->exportId; }
+	public function setExportId(?int $exportId): static { $this->exportId = $exportId; return $this; }
 
 	public function getMetadata(): ?array { return $this->metadata; }
 	public function setMetadata(?array $metadata): static { $this->metadata = $metadata; return $this; }

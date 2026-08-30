@@ -7,8 +7,18 @@ download nebo background zpracovani s dorucenim e-mailem.
 
 Auditni pozadavek "kdo, kdy a co presne exportoval" musi platit pro KAZDY
 export - grid, formular i konzolovy prikaz. Misto per-misto logovani vola
-vsechno jednu funkci; zaznam vznika vzdy a ve stejne transakci jako pripadny
-background job (outbox garance adt/background-queue).
+vsechno jednu funkci.
+
+Provozni a auditni data jsou ODDELENA (stejny vzor jako session vs. auth log):
+
+- **export** (provozni): ridi background regeneraci, soubor, doruceni,
+  download; soubor spravuje `ExportFileStorage` (aplikace typicky vlastni
+  File ekosystem); po doruceni a retenci souboru muze zaznam casem zaniknout
+- **export_log** (audit): append-only "kdo/kdy/co presne" BEZ vazby na
+  soubor - odvazi ho mover do dlouhodobeho auditniho uloziste
+
+Oba zaznamy i pripadny background job vznikaji v JEDNE transakci (outbox
+garance adt/background-queue).
 
 ## Pouziti
 
@@ -17,7 +27,7 @@ Format (CSV/Excel/...) urcuje predany generator; pocet sekci urcuje obsah
 
 ```php
 // jednoducha tabulka (grid):
-$log = $this->exporter->export(new ExportRequest(
+$export = $this->exporter->export(new ExportRequest(
     identifier: 'smart-cards',
     sections: new ExportSection('items', $queryObject, ['number' => 'Cislo', ...]),
     generator: $excelGenerator,       // vs. $csvGenerator = volba formatu
@@ -26,7 +36,7 @@ $log = $this->exporter->export(new ExportRequest(
 ));
 
 // vicesheetovy report (ruzne zdroje, vcetne agregatu bez entit):
-$log = $this->exporter->export(new ExportRequest(
+$export = $this->exporter->export(new ExportRequest(
     identifier: 'order-payments',
     sections: [
         new ExportSection('Items', $orderItemsQb, $itemColumns),
@@ -38,16 +48,17 @@ $log = $this->exporter->export(new ExportRequest(
     filters: ['from' => ..., 'to' => ..., 'companies' => ...],
 ));
 
-if (!$log->isInBackground()) {
-    $this->sendResponse(new FileResponse($log->getFile()));
+if (!$export->isInBackground()) {
+    $this->sendResponse(new FileResponse($this->exporter->getFilePath($export), $export->getFileName()));
 }
 // jinak flash "export prijde e-mailem"
 ```
 
 ## Instalace v aplikaci
 
-1. Entita: `class ExportLog extends BaseEntity implements ADT\Exporter\Model\Entities\ExportLog`
-   s `ExportLogTrait` + vlastnimi id/createdAt/createdBy atributy; migrace.
+1. Entity: `Export` (ExportTrait) a `ExportLog` (ExportLogTrait), obe
+   + vlastni id/createdBy atributy; migrace. Volitelne vlastni
+   `ExportFileStorage` nad aplikacnim File ekosystemem (jinak lokalni default).
 2. Neon:
    ```neon
    extensions:

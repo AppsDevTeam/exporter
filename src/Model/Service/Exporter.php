@@ -5,25 +5,27 @@ declare(strict_types=1);
 namespace ADT\Exporter\Model\Service;
 
 use ADT\BackgroundQueue\BackgroundQueue;
-use ADT\DoctrineComponents\QueryObject\QueryObjectInterface;
-use ADT\Exporter\Model\Entities\ExportLog;
-use Doctrine\ORM\QueryBuilder;
-use DateTimeImmutable;
 use ADT\DoctrineComponents\EntityManager;
+use ADT\DoctrineComponents\QueryObject\QueryObjectInterface;
+use ADT\Exporter\Model\Entities\Export;
+use ADT\Exporter\Model\Entities\ExportLog;
+use DateTimeImmutable;
+use Doctrine\ORM\QueryBuilder;
 use Nette\Application\LinkGenerator;
 use Nette\Mail\Mailer;
 
 /**
- * Jednotne hrdlo vsech exportu dat:
- *   1. VZDY zapise auditni ExportLog (kdo/kdy resi entita aplikace pres
- *      createdBy/createdAt atributy, co presne = enumerace ids + filtry)
- *   2. do syncRowLimit radku vygeneruje soubor hned (volajici vrati download)
- *   3. nad limit zalozi background job (ve STEJNE transakci jako log -
- *      outbox garance background-queue) - soubor vznikne na pozadi
- *      a prijemci odejde e-mail s odkazem
+ * Jednotne hrdlo vsech exportu dat. V JEDNE transakci vznika:
+ *   - ExportLog: AUDITNI zaznam (kdo/kdy/co presne - enumerace ID, DQL,
+ *     filtry) - append-only, bez vazby na soubor; odvazi ho mover do
+ *     dlouhodobeho auditniho uloziste
+ *   - Export: PROVOZNI zaznam - ridi background regeneraci, soubor
+ *     (pres ExportFileStorage - typicky aplikacni File ekosystem),
+ *     doruceni a download
+ *   - pripadny background job (nad syncRowLimit nebo forceBackground)
  *
- * Registrace queue callbacku v aplikaci:
- *   backgroundQueue: callbacks: processExport: [@ADT\Exporter\Model\Service\Exporter, processExport]
+ * Registrace queue callbacku:
+ *   backgroundQueue: callbacks: processExport: [@exporter.exporter, processExport]
  */
 final class Exporter
 {
@@ -37,13 +39,13 @@ final class Exporter
 		private readonly BackgroundQueue $backgroundQueue,
 		private readonly Mailer $mailer,
 		private readonly ExportMailFactory $mailFactory,
+		private readonly ExportFileStorage $fileStorage,
 		private readonly LinkGenerator $linkGenerator,
 		private readonly int $syncRowLimit,
-		private readonly string $fileDir,
 		private readonly string $downloadLink,
 	) {}
 
-	public function export(ExportRequest $request): ExportLog
+	public function export(ExportRequest $request): Export
 	{
 		$sections = [];
 		$rowCount = 0;
@@ -52,9 +54,19 @@ final class Exporter
 			$rowCount += $s['ids'] !== null ? count($s['ids']) : count($s['rows']);
 		}
 
+		$now = new DateTimeImmutable();
+
+		/** @var Export $export */
+		$export = new ($this->em->findEntityClassByInterface(Export::class));
+		$export->setCreatedAt($now)
+			->setIdentifier($request->identifier)
+			->setSections($sections)
+			->setEmail($request->email)
+			->setInBackground($request->forceBackground || $rowCount > $this->syncRowLimit);
+
 		/** @var ExportLog $log */
 		$log = new ($this->em->findEntityClassByInterface(ExportLog::class));
-		$log->setCreatedAt(new DateTimeImmutable())
+		$log->setCreatedAt($now)
 			->setIdentifier($request->identifier)
 			->setSections($sections)
 			->setFilters($request->filters)
@@ -62,29 +74,130 @@ final class Exporter
 			->setEmail($request->email)
 			->setMetadata(($request->metadata ?? []) + ['generator' => get_class($request->generator)]);
 
-		if ($request->forceBackground || $rowCount > $this->syncRowLimit) {
-			$log->setInBackground(true);
-			// log i job v jedne transakci - zadny export bez auditu, zadny audit bez jobu
-			$this->em->wrapInTransaction(function () use ($log) {
-				$this->em->persist($log);
-				$this->em->flush();
-				$this->backgroundQueue->publish(self::QUEUE_CALLBACK, ['exportLogId' => $log->getId()]);
-			});
-			return $log;
+		// audit + provozni zaznam + job v JEDNE transakci: zadny export bez
+		// auditu, zadny audit bez exportu, zadny job bez obojiho
+		$this->em->wrapInTransaction(function () use ($export, $log) {
+			$this->em->persist($export);
+			$this->em->flush();
+			$log->setExportId($export->getId());
+			$this->em->persist($log);
+			$this->em->flush();
+			if ($export->isInBackground()) {
+				$this->backgroundQueue->publish(self::QUEUE_CALLBACK, ['exportId' => $export->getId()]);
+			}
+		});
+
+		if (!$export->isInBackground()) {
+			$this->generateFile($export, $request->generator);
 		}
 
-		$this->em->persist($log);
-		$this->em->flush();
-		$this->generateFile($log, $request->generator);
-		return $log;
+		return $export;
+	}
+
+	/** lokalni cesta souboru pro sync download (FileResponse) */
+	public function getFilePath(Export $export): ?string
+	{
+		return $this->fileStorage->getLocalPath($export);
+	}
+
+	/** Queue callback - regenerace ze sekci + e-mail s odkazem */
+	public function processExport(array $parameters): void
+	{
+		/** @var Export $export */
+		$export = $this->em->getRepository($this->em->findEntityClassByInterface(Export::class))
+			->find($parameters['exportId']);
+		if (!$export || $export->getProcessedAt() !== null) {
+			return; // idempotence pri retry
+		}
+
+		$log = $this->em->getRepository($this->em->findEntityClassByInterface(ExportLog::class))
+			->findOneBy(['exportId' => $export->getId()]);
+		$generatorClass = $log?->getMetadata()['generator']
+			?? throw new \RuntimeException("Export {$export->getId()}: chybi auditni zaznam s generatorem.");
+
+		$this->generateFile($export, $this->resolveGenerator($generatorClass));
+
+		if ($export->getEmail()) {
+			// obsah e-mailu vlastni projekt (ExportMailFactory); odkaz vede na
+			// aplikacni routu - soubor se vydava az po overeni prihlaseni/vlastnictvi
+			$this->mailer->send($this->mailFactory->create(
+				$export,
+				$this->linkGenerator->link($this->downloadLink, ['id' => $export->getId()]),
+			));
+		}
 	}
 
 	/**
-	 * Materializace sekce v okamziku volani. Entity zdroje -> seznam ID
-	 * (+ DQL s parametry jako auditni kontext); query se do jobu NEserializuje
-	 * a nikdy se neprehravava pozdeji (audit = stav pri kliknuti). Raw radky
-	 * (agregaty) se ukladaji primo do zaznamu.
+	 * Smaze SOUBORY exportu starsich nez $retentionDays (exportovana data
+	 * nesmi lezet na disku dele, nez je nutne k doruceni). Auditni zaznamy
+	 * se nedotyka; provozni zaznam dostane filesPurgedAt.
 	 */
+	public function purgeFiles(int $retentionDays): int
+	{
+		$threshold = new DateTimeImmutable("-{$retentionDays} days");
+		$purged = 0;
+		$exports = $this->em->getRepository($this->em->findEntityClassByInterface(Export::class))
+			->createQueryBuilder('e')
+			->where('e.processedAt < :t')->andWhere('e.filesPurgedAt IS NULL')
+			->setParameter('t', $threshold)
+			->getQuery()->getResult();
+		foreach ($exports as $export) {
+			$this->fileStorage->purge($export);
+			$export->setFilesPurgedAt(new DateTimeImmutable());
+			$purged++;
+		}
+		$this->em->flush();
+		return $purged;
+	}
+
+	/** @internal registrace generatoru z DI (viz ExporterExtension) */
+	public function addGenerator(ExportFileGenerator $generator): void
+	{
+		$this->generators[get_class($generator)] = $generator;
+	}
+
+	private function generateFile(Export $export, ExportFileGenerator $generator): void
+	{
+		ini_set('memory_limit', '10G');
+
+		$sections = [];
+		foreach ($export->getSections() as $section) {
+			if ($section['rows'] !== null) {
+				$sections[$section['name']] = ['items' => $section['rows'], 'columns' => $section['columns']];
+				continue;
+			}
+			// nacteni po davkach dle ulozenych ids - poradi dle ids zachovano
+			$items = [];
+			foreach (array_chunk($section['ids'], 5000) as $chunk) {
+				foreach ($this->em->getRepository($section['entityClass'])
+					->createQueryBuilder('e')->where('e.id IN (:ids)')->setParameter('ids', $chunk)
+					->getQuery()->getResult() as $item) {
+					$items[(string) $item->getId()] = $item;
+				}
+			}
+			$ordered = [];
+			foreach ($section['ids'] as $id) {
+				if (isset($items[(string) $id])) {
+					$ordered[] = $items[(string) $id];
+				}
+			}
+			$sections[$section['name']] = ['items' => $ordered, 'columns' => $section['columns']];
+		}
+
+		$tmpPath = $generator->generate($sections, $export->getIdentifier());
+
+		$export->setFileName(basename($tmpPath));
+		$this->fileStorage->attach($export, $tmpPath);
+		$export->setProcessedAt(new DateTimeImmutable());
+		$this->em->flush();
+	}
+
+	private function resolveGenerator(string $class): ExportFileGenerator
+	{
+		return $this->generators[$class]
+			?? throw new \RuntimeException("Export generator '$class' neni registrovany jako sluzba.");
+	}
+
 	private function materializeSection(ExportSection $section): array
 	{
 		$out = ['name' => $section->name, 'columns' => $section->columns,
@@ -136,105 +249,5 @@ final class Exporter
 			};
 		}
 		return $out;
-	}
-
-	/** Queue callback - generovani na pozadi + e-mail s odkazem */
-	public function processExport(array $parameters): void
-	{
-		/** @var ExportLog $log */
-		$log = $this->em->getRepository($this->em->findEntityClassByInterface(ExportLog::class))
-			->find($parameters['exportLogId']);
-		if (!$log || $log->getFile() !== null) {
-			return; // idempotence pri retry
-		}
-
-		$generatorClass = $log->getMetadata()['generator'];
-		$this->generateFile($log, $this->resolveGenerator($generatorClass));
-
-		if ($log->getEmail()) {
-			// obsah e-mailu vlastni projekt (ExportMailFactory) - odkaz vede na
-			// aplikacni routu, ktera soubor vyda az po overeni prihlaseni/vlastnictvi
-			$this->mailer->send($this->mailFactory->create(
-				$log,
-				$this->linkGenerator->link($this->downloadLink, ['id' => $log->getId()]),
-			));
-		}
-	}
-
-	private function generateFile(ExportLog $log, ExportFileGenerator $generator): void
-	{
-		ini_set('memory_limit', '10G');
-
-		$sections = [];
-		foreach ($log->getSections() as $section) {
-			if ($section['rows'] !== null) {
-				$sections[$section['name']] = ['items' => $section['rows'], 'columns' => $section['columns']];
-				continue;
-			}
-			// nacteni po davkach dle ulozenych ids - poradi dle ids zachovano
-			$items = [];
-			foreach (array_chunk($section['ids'], 5000) as $chunk) {
-				foreach ($this->em->getRepository($section['entityClass'])
-					->createQueryBuilder('e')->where('e.id IN (:ids)')->setParameter('ids', $chunk)
-					->getQuery()->getResult() as $item) {
-					$items[(string) $item->getId()] = $item;
-				}
-			}
-			$ordered = [];
-			foreach ($section['ids'] as $id) {
-				if (isset($items[(string) $id])) {
-					$ordered[] = $items[(string) $id];
-				}
-			}
-			$sections[$section['name']] = ['items' => $ordered, 'columns' => $section['columns']];
-		}
-
-		$path = $generator->generate($sections, $log->getIdentifier());
-
-		if (!is_dir($this->fileDir)) {
-			mkdir($this->fileDir, 0770, true);
-		}
-		$target = $this->fileDir . '/' . $log->getId() . '-' . basename($path);
-		rename($path, $target);
-
-		$log->setFile($target)->setProcessedAt(new DateTimeImmutable());
-		$this->em->flush();
-	}
-
-	/**
-	 * Smaze vygenerovane SOUBORY starsi nez $retentionDays (auditni zaznam
-	 * zustava po celou svou retenci - jen prijde o soubor; download pak vrati
-	 * chybu "export expiroval"). Exportovana data nesmi lezet na disku dele,
-	 * nez je nutne pro doruceni - viz retencni politika projektu.
-	 */
-	public function purgeFiles(int $retentionDays): int
-	{
-		$threshold = new DateTimeImmutable("-{$retentionDays} days");
-		$purged = 0;
-		$logs = $this->em->getRepository($this->em->findEntityClassByInterface(ExportLog::class))
-			->createQueryBuilder('e')
-			->where('e.file IS NOT NULL')->andWhere('e.processedAt < :t')->setParameter('t', $threshold)
-			->getQuery()->getResult();
-		foreach ($logs as $log) {
-			if (is_file($log->getFile())) {
-				unlink($log->getFile());
-			}
-			$log->setFile(null);
-			$purged++;
-		}
-		$this->em->flush();
-		return $purged;
-	}
-
-	/** @internal registrace generatoru z DI (viz ExporterExtension) */
-	public function addGenerator(ExportFileGenerator $generator): void
-	{
-		$this->generators[get_class($generator)] = $generator;
-	}
-
-	private function resolveGenerator(string $class): ExportFileGenerator
-	{
-		return $this->generators[$class]
-			?? throw new \RuntimeException("Export generator '$class' neni registrovany jako sluzba (tag exporter.generator).");
 	}
 }

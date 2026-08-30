@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ADT\Exporter\Model\Service;
 
-use ADT\Exporter\Model\Entities\ExportLog;
+use ADT\Exporter\Model\Entities\Export;
 use Nette\Mail\Message;
 
 /**
@@ -19,5 +19,5 @@ use Nette\Mail\Message;
  */
 interface ExportMailFactory
 {
-	public function create(ExportLog $log, string $downloadLink): Message;
+	public function create(Export $export, string $downloadLink): Message;
 }

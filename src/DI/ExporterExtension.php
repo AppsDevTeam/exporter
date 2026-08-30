@@ -8,7 +8,9 @@ use ADT\Exporter\Model\Service\DefaultExportMailFactory;
 use ADT\Exporter\Model\Service\ExportFileGenerator;
 use ADT\Exporter\Model\Service\ExportMailFactory;
 use ADT\Exporter\Console\PurgeExportFilesCommand;
+use ADT\Exporter\Model\Service\ExportFileStorage;
 use ADT\Exporter\Model\Service\Exporter;
+use ADT\Exporter\Model\Service\LocalExportFileStorage;
 use Nette\DI\CompilerExtension;
 use Nette\Schema\Expect;
 use Nette\Schema\Schema;
@@ -33,7 +35,9 @@ class ExporterExtension extends CompilerExtension
 		return Expect::structure([
 			'syncRowLimit' => Expect::int(500),
 			'fileRetentionDays' => Expect::int(7),
-			'fileDir' => Expect::string()->required(),
+			// pouziva jen default LocalExportFileStorage; s vlastnim storage
+			// (napr. nad aplikacnim File ekosystemem) neni potreba
+			'fileDir' => Expect::string('/tmp/exports'),
 			'downloadLink' => Expect::string()->required(),
 		]);
 	}
@@ -46,7 +50,6 @@ class ExporterExtension extends CompilerExtension
 		$builder->addDefinition($this->prefix('exporter'))
 			->setFactory(Exporter::class, [
 				'syncRowLimit' => $config->syncRowLimit,
-				'fileDir' => $config->fileDir,
 				'downloadLink' => $config->downloadLink,
 			]);
 
@@ -64,6 +67,12 @@ class ExporterExtension extends CompilerExtension
 		if (!$builder->findByType(ExportMailFactory::class)) {
 			$builder->addDefinition($this->prefix('mailFactory'))
 				->setType(DefaultExportMailFactory::class);
+		}
+
+		// uloziste souboru vlastni projekt (napr. adt/files) - default lokalni
+		if (!$builder->findByType(ExportFileStorage::class)) {
+			$builder->addDefinition($this->prefix('fileStorage'))
+				->setFactory(LocalExportFileStorage::class, [$this->getConfig()->fileDir]);
 		}
 
 		$exporter = $builder->getDefinition($this->prefix('exporter'));
