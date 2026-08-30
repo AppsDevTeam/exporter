@@ -21,6 +21,9 @@ final readonly class ExportRequest
 	 * @param string|null $email prijemce pri background zpracovani
 	 * @param array|null $filters stav filtru/formulare v okamziku exportu (audit)
 	 * @param array|null $metadata volitelny dalsi kontext (audit)
+	 * @param bool $forceBackground vynuti background zpracovani + e-mail
+	 *        i pod syncRowLimit (automaticke reporty z cronu, kde neni
+	 *        nikdo, kdo by si soubor stahl synchronne)
 	 */
 	public function __construct(
 		public string $identifier,
@@ -29,6 +32,7 @@ final readonly class ExportRequest
 		public ?string $email = null,
 		public ?array $filters = null,
 		public ?array $metadata = null,
+		public bool $forceBackground = false,
 	) {
 		$this->sections = is_array($sections) ? array_values($sections) : [$sections];
 	}

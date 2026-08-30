@@ -61,7 +61,7 @@ final class Exporter
 			->setEmail($request->email)
 			->setMetadata(($request->metadata ?? []) + ['generator' => get_class($request->generator)]);
 
-		if ($rowCount > $this->syncRowLimit) {
+		if ($request->forceBackground || $rowCount > $this->syncRowLimit) {
 			$log->setInBackground(true);
 			// log i job v jedne transakci - zadny export bez auditu, zadny audit bez jobu
 			$this->em->wrapInTransaction(function () use ($log) {
