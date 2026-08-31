@@ -10,6 +10,7 @@ use Doctrine\ORM\Mapping\Column;
 use Doctrine\ORM\Mapping\Entity;
 use Doctrine\ORM\Mapping\GeneratedValue;
 use Doctrine\ORM\Mapping\Id;
+use Doctrine\ORM\Mapping\Index;
 use Doctrine\ORM\Mapping\Table;
 
 /**
@@ -29,6 +30,9 @@ use Doctrine\ORM\Mapping\Table;
  */
 #[Entity]
 #[Table(name: 'export_download_log')]
+// jeden export ma i mnoho stazeni - bez indexu by dotaz "kdo si tenhle
+// export stahl" skenoval celou tabulku
+#[Index(columns: ['export_uuid'])]
 final class ExportDownloadLog
 {
 	use ActorSnapshotTrait;
