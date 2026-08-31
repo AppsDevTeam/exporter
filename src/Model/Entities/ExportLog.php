@@ -12,13 +12,17 @@ use Doctrine\ORM\Mapping\Id;
 use Doctrine\ORM\Mapping\Table;
 
 /**
- * AUDITNI zaznam exportu dat - "co presne opustilo system, kdo a kdy".
+ * AUDITNI zaznam exportu dat - "co presne opustilo system, kdo, kdy a kam".
  *
  * FINALNI, NEMENNA entita knihovny (zadne settery - vse pres konstruktor;
- * po vytvoreni se zaznam uz nikdy needituje). Aktera uklada DENORMALIZOVANE
- * (id + jmeno + e-mail v okamziku akce, zadna FK relace) - audit tak nezavisi
- * na zbytku databaze a mover ho odveze do dlouhodobeho auditniho uloziste
- * beze ztraty vyznamu, i kdyby uzivatel v aplikaci zanikl ci se prejmenoval.
+ * po vytvoreni se zaznam uz nikdy needituje) a bez jedine relace: audit
+ * nezavisi na zbytku databaze a mover ho odveze do dlouhodobeho auditniho
+ * uloziste beze ztraty vyznamu, i kdyby uzivatel v aplikaci zanikl.
+ *
+ * Akter je snapshot v okamziku akce. Ploche je jen univerzalni minimum
+ * (createdById = spojovaci klic napric logy, createdByLabel = lidsky
+ * citelne oznaceni); CIM konkretne projekt aktera identifikuje se lisi,
+ * a proto je promenna cast volny JSON createdBy - viz ExportActor.
  *
  * Aplikace entitu jen namapuje (nettrine mapping na vendor/adt/exporter/src/
  * Model/Entities) - zadna vlastni trida, zadny trait.
@@ -44,20 +48,23 @@ final class ExportLog
 		private readonly int $rowCount,
 		#[Column(type: 'json', nullable: true)]
 		private readonly ?array $filters,
+		/** KAM data odesla (prijemce); jina informace nez akter, ktery export spustil */
 		#[Column(nullable: true)]
-		private readonly ?string $email,
+		private readonly ?string $recipientEmail,
 		/** vazba na provozni zaznam (ten muze casem zaniknout, audit ne) */
 		#[Column(nullable: true)]
 		private readonly ?int $exportId,
 		#[Column(type: 'json', nullable: true)]
 		private readonly ?array $metadata,
-		/** akter DENORMALIZOVANE - snapshot v okamziku akce, zadna relace */
+		/** spojovaci klic aktera ve zdrojovem systemu */
 		#[Column(nullable: true)]
 		private readonly ?string $createdById,
+		/** lidsky citelne oznaceni aktera - aby sel log cist bez znalosti tvaru createdBy */
 		#[Column(nullable: true)]
-		private readonly ?string $createdByName,
-		#[Column(nullable: true)]
-		private readonly ?string $createdByEmail,
+		private readonly ?string $createdByLabel,
+		/** cim dalsim projekt aktera identifikuje (jmeno, e-mail, role, ucet...) */
+		#[Column(type: 'json', nullable: true)]
+		private readonly ?array $createdBy,
 	) {}
 
 	public function getId(): ?int { return $this->id; }
@@ -66,10 +73,10 @@ final class ExportLog
 	public function getSections(): array { return $this->sections; }
 	public function getRowCount(): int { return $this->rowCount; }
 	public function getFilters(): ?array { return $this->filters; }
-	public function getEmail(): ?string { return $this->email; }
+	public function getRecipientEmail(): ?string { return $this->recipientEmail; }
 	public function getExportId(): ?int { return $this->exportId; }
 	public function getMetadata(): ?array { return $this->metadata; }
 	public function getCreatedById(): ?string { return $this->createdById; }
-	public function getCreatedByName(): ?string { return $this->createdByName; }
-	public function getCreatedByEmail(): ?string { return $this->createdByEmail; }
+	public function getCreatedByLabel(): ?string { return $this->createdByLabel; }
+	public function getCreatedBy(): ?array { return $this->createdBy; }
 }

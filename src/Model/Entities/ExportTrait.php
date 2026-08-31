@@ -15,6 +15,9 @@ trait ExportTrait
 	#[Column(type: 'json')]
 	protected array $sections = [];
 
+	#[Column]
+	protected string $generator;
+
 	#[Column(nullable: true)]
 	protected ?string $email = null;
 
@@ -38,6 +41,9 @@ trait ExportTrait
 
 	public function getSections(): array { return $this->sections; }
 	public function setSections(array $sections): static { $this->sections = $sections; return $this; }
+
+	public function getGenerator(): string { return $this->generator; }
+	public function setGenerator(string $generator): static { $this->generator = $generator; return $this; }
 
 	public function getEmail(): ?string { return $this->email; }
 	public function setEmail(?string $email): static { $this->email = $email; return $this; }

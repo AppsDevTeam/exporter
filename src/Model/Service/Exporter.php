@@ -17,8 +17,9 @@ use Nette\Mail\Mailer;
 /**
  * Jednotne hrdlo vsech exportu dat. V JEDNE transakci vznika:
  *   - ExportLog: AUDITNI zaznam (kdo/kdy/co presne - enumerace ID, DQL,
- *     filtry) - append-only, bez vazby na soubor; odvazi ho mover do
- *     dlouhodobeho auditniho uloziste
+ *     filtry - a kam to odeslo) - append-only, bez jedine relace a bez
+ *     vazby na soubor; odvazi ho mover do dlouhodobeho auditniho uloziste.
+ *     Provozni beh na nej NIKDY nesmi sahat - po odvezeni tu neni.
  *   - Export: PROVOZNI zaznam - ridi background regeneraci, soubor
  *     (pres ExportFileStorage - typicky aplikacni File ekosystem),
  *     doruceni a download
@@ -62,6 +63,7 @@ final class Exporter
 		$export->setCreatedAt($now)
 			->setIdentifier($request->identifier)
 			->setSections($sections)
+			->setGenerator(get_class($request->generator))
 			->setEmail($request->email)
 			->setInBackground($request->forceBackground || $rowCount > $this->syncRowLimit);
 
@@ -79,12 +81,12 @@ final class Exporter
 				sections: $sections,
 				rowCount: $rowCount,
 				filters: $request->filters,
-				email: $request->email,
+				recipientEmail: $request->email,
 				exportId: $export->getId(),
-				metadata: ($request->metadata ?? []) + ['generator' => get_class($request->generator)],
+				metadata: $request->metadata,
 				createdById: $actor?->id !== null ? (string) $actor->id : null,
-				createdByName: $actor?->name,
-				createdByEmail: $actor?->email,
+				createdByLabel: $actor?->label,
+				createdBy: $actor?->data ?: null,
 			));
 			$this->em->flush();
 			if ($export->isInBackground()) {
@@ -115,12 +117,7 @@ final class Exporter
 			return; // idempotence pri retry
 		}
 
-		$log = $this->em->getRepository(ExportLog::class)
-			->findOneBy(['exportId' => $export->getId()]);
-		$generatorClass = $log?->getMetadata()['generator']
-			?? throw new \RuntimeException("Export {$export->getId()}: chybi auditni zaznam s generatorem.");
-
-		$this->generateFile($export, $this->resolveGenerator($generatorClass));
+		$this->generateFile($export, $this->resolveGenerator($export->getGenerator()));
 
 		if ($export->getEmail()) {
 			// obsah e-mailu vlastni projekt (ExportMailFactory); odkaz vede na

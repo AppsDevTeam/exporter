@@ -26,6 +26,14 @@ interface Export
 	public function getSections(): array;
 	public function setSections(array $sections): static;
 
+	/**
+	 * Sluzba, ktera soubor vyrobi (class-string ExportFileGenerator).
+	 * Provozni udaj - background regenerace na nej nesmi potrebovat audit.
+	 * @return class-string
+	 */
+	public function getGenerator(): string;
+	public function setGenerator(string $generator): static;
+
 	public function getEmail(): ?string;
 	public function setEmail(?string $email): static;
 

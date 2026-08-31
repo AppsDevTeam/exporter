@@ -77,6 +77,36 @@ if (!$export->isInBackground()) {
 3. Generatory souboru registrovat jako sluzby (implementuji `ExportFileGenerator`,
    extension je poskytne background handleru automaticky).
 
+## Akter auditu
+
+Kazdy projekt identifikuje uzivatele jinak - nekde jmeno a e-mail, jinde jen
+prihlasovaci jmeno, servisni ucet nebo API klic. Knihovna proto nepredepisuje
+zadna konkretni pole a uklada:
+
+| sloupec | k cemu |
+|---|---|
+| `created_by_id` | klic aktera ve zdrojovem systemu - spojovaci klic auditu (podle nej se v auditnim ulozisti joinuje napric logy) |
+| `created_by_label` | jedno lidsky citelne oznaceni - aby sel log cist bez znalosti tvaru `created_by` |
+| `created_by` | JSON: cimkoliv dalsim projekt aktera identifikuje |
+
+Ploche jsou tedy jen ty dve veci, ktere maji smysl v kazdem systemu; promenna
+cast jde do JSONu. Aplikace dodava `ExportActorProvider`:
+
+```php
+public function getActor(): ?ExportActor
+{
+    if (!$this->securityUser->isLoggedIn()) {
+        return null;    // cron, konzument fronty, CLI
+    }
+    $identity = $this->securityUser->getIdentity();
+    return new ExportActor(
+        id: $identity->getId(),
+        label: $identity->getName() ?: $identity->getEmail(),
+        data: ['name' => $identity->getName(), 'email' => $identity->getEmail()],
+    );
+}
+```
+
 ## E-mail
 
 Obsah e-mailu vlastni projekt: implementuj `ExportMailFactory` jako sluzbu
@@ -90,19 +120,22 @@ Soubor lezi ve `fileDir` MIMO docroot - jedina cesta k nemu je pres presenter,
 ktery MUSI overit prihlaseni a vlastnictvi:
 
 ```php
-public function actionDownload(int $id): void
+public function actionExport(int $id): void
 {
-    $log = $this->exportLogQueryFactory->create()->byId($id)->fetchOneOrNull();
-    if (!$log || !$log->getFile()) {
+    $export = $this->exportQueryFactory->create()->byId($id)->fetchOneOrNull();
+    if (!$export || !$export->getFile()) {
         $this->error();
     }
     // stahnout smi jen autor exportu (pripadne rozsirit o admin ACL)
-    if ($log->getCreatedBy()?->getId() !== $this->securityUser->getId()) {
+    if ($export->getCreatedBy()?->getId() !== $this->securityUser->getId()) {
         $this->error('', \Nette\Http\IResponse::S403_Forbidden);
     }
-    $this->sendResponse(new FileResponse($log->getFile(), basename($log->getFile())));
+    $this->sendResponse(new FileResponse($export->getFile()->getPath(), $export->getFileName()));
 }
 ```
+
+Overeni vlastnictvi je PROVOZNI vec, proto FK `created_by` na aplikacniho
+uzivatele zustava na `Export` - narozdil od auditu, ktery zadnou relaci nema.
 
 Neprihlaseneho uzivatele posle bezny auth mechanismus aplikace na login
 a po prihlaseni zpet - odkaz z e-mailu tak funguje kdykoli behem retence
@@ -125,12 +158,15 @@ exportu vrati chybu.
 
 - vznika VZDY, i pro maly synchronni download
 - zaznam je NEMENNY (final entita bez setteru) a aktera nese DENORMALIZOVANE
-  (id + jmeno + e-mail v okamziku akce, zadna FK relace) - nezavisi na zbytku
-  databaze a prezije odvoz do externiho auditniho uloziste
+  (snapshot v okamziku akce, zadna FK relace) - nezavisi na zbytku databaze
+  a prezije odvoz do externiho auditniho uloziste
+- provozni beh na auditni zaznam NIKDY nesaha (po odvozu moverem tu neni);
+  vse, co potrebuje background regenerace, je na `Export`
 - selekce KAZDE sekce se materializuje V OKAMZIKU volani: entity sekce nesou
   presny vycet ID + DQL s parametry, agregatove sekce primo snapshot radku
   (query nejde serializovat do jobu a pozdejsi prehrani by neodpovidalo
   dorucenemu souboru)
-- `filters` + `identifier` = citelny kontext pro auditora
+- `filters` + `identifier` = citelny kontext pro auditora, `recipientEmail`
+  odpovida na "kam data odesla" (jina otazka nez kdo export spustil)
 - zaznam se po vytvoreni needituje (jen doplneni file/processedAt); dlouhodobou
   retenci resi mover do auditniho uloziste (viz projektova infrastruktura)
