@@ -12,7 +12,7 @@ use DateTimeImmutable;
  * pres vlastni File ekosystem); po doruceni a uplynuti retence souboru muze
  * aplikace radek casem smazat.
  *
- * Auditni stopa je samostatna udalost zapsana pres ExportAuditLogger (bez vazby na
+ * Auditni stopa je samostatna udalost zapsana auditnim callbackem (bez vazby na
  * soubor) - tu odvazi mover do dlouhodobeho auditniho uloziste.
  */
 interface Export

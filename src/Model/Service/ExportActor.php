@@ -37,7 +37,7 @@ final readonly class ExportActor
 	) {}
 
 	/**
-	 * Zplosteni pro ExportAuditLogger, jehoz rozhrani je zamerne jen ze
+	 * Zplosteni pro auditni callback, ktery je zamerne jen ze
 	 * skalaru a poli - implementace pak nemusi znat typy teto knihovny.
 	 *
 	 * @return array{id: string|null, label: string|null, data: array, ip: string|null, userAgent: string|null}

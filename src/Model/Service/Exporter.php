@@ -9,6 +9,7 @@ use ADT\DoctrineComponents\EntityManager;
 use ADT\DoctrineComponents\QueryObject\QueryObjectInterface;
 use ADT\Exporter\Model\Entities\Export;
 
+use Closure;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\ORM\QueryBuilder;
@@ -17,7 +18,7 @@ use Nette\Mail\Mailer;
 
 /**
  * Jednotne hrdlo vsech exportu dat. V JEDNE transakci vznika:
- *   - AUDITNI udalost pres ExportAuditLogger (kdo/kdy/co presne - enumerace
+ *   - AUDITNI udalost pres callback setAuditLogger() (kdo/kdy/co presne - enumerace
  *     ID, DQL, filtry - a kam to odeslo). Knihovna nevlastni tabulku ani
  *     entitu: zapisovac dodava aplikace nebo nadrazeny balicek, ktery
  *     vsechny auditni udalosti sbira do jednoho streamu.
@@ -33,6 +34,14 @@ final class Exporter
 {
 	public const string QUEUE_CALLBACK = 'processExport';
 
+	/** zadani exportu - data byla vybrana a soubor vznikl */
+	public const string ACTION_EXPORT = 'export';
+
+	/** vydej souboru - okamzik, kdy data opustila system */
+	public const string ACTION_DOWNLOAD = 'download';
+
+	private ?Closure $auditLogger = null;
+
 	/** @var array<class-string, ExportFileGenerator> */
 	private array $generators = [];
 
@@ -43,11 +52,36 @@ final class Exporter
 		private readonly ExportMailFactory $mailFactory,
 		private readonly ExportFileStorage $fileStorage,
 		private readonly ExportActorProvider $actorProvider,
-		private readonly ExportAuditLogger $auditLogger,
 		private readonly LinkGenerator $linkGenerator,
 		private readonly int $syncRowLimit,
 		private readonly string $downloadLink,
 	) {}
+
+	/**
+	 * Nasmeruje auditni udalosti exportu do auditniho streamu aplikace.
+	 *
+	 * Callback dostane jen SKALARY A POLE, takze implementace nemusi zaviset
+	 * na teto knihovne:
+	 *
+	 *   function (
+	 *       string $action,                 // ACTION_* konstanta
+	 *       DateTimeImmutable $createdAt,   // v UTC
+	 *       ?string $correlationId,         // id provozniho zaznamu exportu
+	 *       array $actor,                   // ['id','label','data','ip','userAgent']
+	 *       array $payload,                 // identifier, rowCount a dale dle akce
+	 *       bool $detached,                 // FALSE - viz nize
+	 *   ): void
+	 *
+	 * Zapisuje se s $detached = FALSE, tedy ve STEJNE transakci jako provozni
+	 * zaznam: audit a export maji vzniknout atomicky, aby nemohl existovat
+	 * jeden bez druheho.
+	 *
+	 * V neonu:  exporter: auditLogger: [@nejakyAuditLogger, log]
+	 */
+	public function setAuditLogger(?callable $auditLogger): void
+	{
+		$this->auditLogger = $auditLogger !== null ? Closure::fromCallable($auditLogger) : null;
+	}
 
 	public function export(ExportRequest $request): Export
 	{
@@ -86,12 +120,12 @@ final class Exporter
 		$this->em->wrapInTransaction(function () use ($export, $request, $auditSections, $rowCount, $nowUtc, $actor) {
 			$this->em->persist($export);
 			$this->em->flush();
-			$this->auditLogger->log(
-				action: ExportAuditLogger::ACTION_EXPORT,
-				createdAt: $nowUtc,
-				correlationId: (string) $export->getId(),
-				actor: $actor?->toArray() ?? ExportActor::emptyArray(),
-				payload: [
+			$this->logAudit(
+				self::ACTION_EXPORT,
+				$nowUtc,
+				(string) $export->getId(),
+				$actor,
+				[
 					'identifier' => $request->identifier,
 					'rowCount' => $rowCount,
 					'sections' => $auditSections,
@@ -124,14 +158,12 @@ final class Exporter
 	 */
 	public function logDownload(Export $export): void
 	{
-		$actor = $this->actorProvider->getActor();
-
-		$this->auditLogger->log(
-			action: ExportAuditLogger::ACTION_DOWNLOAD,
-			createdAt: new DateTimeImmutable('now', new DateTimeZone('UTC')),
-			correlationId: (string) $export->getId(),
-			actor: $actor?->toArray() ?? ExportActor::emptyArray(),
-			payload: [
+		$this->logAudit(
+			self::ACTION_DOWNLOAD,
+			new DateTimeImmutable('now', new DateTimeZone('UTC')),
+			(string) $export->getId(),
+			$this->actorProvider->getActor(),
+			[
 				'identifier' => $export->getIdentifier(),
 				'rowCount' => self::countRows($export->getSections()),
 				'fileName' => $export->getFileName(),
@@ -188,6 +220,32 @@ final class Exporter
 		}
 		$this->em->flush();
 		return $purged;
+	}
+
+	/**
+	 * Bez nastaveneho callbacku se audit nepise. Zapis probiha ve stejne
+	 * transakci jako provozni zaznam ($detached = false), aby audit a export
+	 * vznikly atomicky.
+	 */
+	private function logAudit(
+		string $action,
+		DateTimeImmutable $createdAt,
+		?string $correlationId,
+		?ExportActor $actor,
+		array $payload,
+	): void {
+		if ($this->auditLogger === null) {
+			return;
+		}
+
+		($this->auditLogger)(
+			$action,
+			$createdAt,
+			$correlationId,
+			$actor?->toArray() ?? ExportActor::emptyArray(),
+			$payload,
+			false,
+		);
 	}
 
 	/** pocet radku napric sekcemi (entitni nesou ids, agregatove rovnou rows) */

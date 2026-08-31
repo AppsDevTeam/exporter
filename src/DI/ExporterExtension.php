@@ -9,7 +9,6 @@ use ADT\Exporter\Model\Service\ExportFileGenerator;
 use ADT\Exporter\Model\Service\ExportMailFactory;
 use ADT\Exporter\Console\PurgeExportFilesCommand;
 use ADT\Exporter\Model\Service\ExportActorProvider;
-use ADT\Exporter\Model\Service\ExportAuditLogger;
 use ADT\Exporter\Model\Service\ExportFileStorage;
 use ADT\Exporter\Model\Service\Exporter;
 use ADT\Exporter\Model\Service\LocalExportFileStorage;
@@ -42,6 +41,9 @@ class ExporterExtension extends CompilerExtension
 			// (napr. nad aplikacnim File ekosystemem) neni potreba
 			'fileDir' => Expect::string('/tmp/exports'),
 			'downloadLink' => Expect::string()->required(),
+			// callback auditniho zapisovace, napr. [@fancyAdmin.auditLogger, log]
+			// - viz Exporter::setAuditLogger(). Bez nej se audit nepise.
+			'auditLogger' => Expect::mixed(),
 		]);
 	}
 
@@ -55,6 +57,11 @@ class ExporterExtension extends CompilerExtension
 				'syncRowLimit' => $config->syncRowLimit,
 				'downloadLink' => $config->downloadLink,
 			]);
+
+		if ($config->auditLogger !== null) {
+			$builder->getDefinition($this->prefix('exporter'))
+				->addSetup('setAuditLogger', [$config->auditLogger]);
+		}
 
 		$builder->addDefinition($this->prefix('purgeExportFilesCommand'))
 			->setFactory(PurgeExportFilesCommand::class, ['defaultRetentionDays' => $config->fileRetentionDays])
@@ -77,18 +84,6 @@ class ExporterExtension extends CompilerExtension
 		if (!$builder->findByType(ExportActorProvider::class)) {
 			$builder->addDefinition($this->prefix('actorProvider'))
 				->setType(NullExportActorProvider::class);
-		}
-
-		// Zapisovac auditu je POVINNY a nema nulovou implementaci: cely
-		// invariant exportu je "zadny export bez auditu", takze tichy no-op
-		// by ho zrusil a nikdo by si toho nevsiml. Radsi hlasite selhani
-		// pri kompilaci kontejneru nez neviditelne chybejici audit.
-		if (!$builder->findByType(ExportAuditLogger::class)) {
-			throw new \Nette\DI\InvalidConfigurationException(
-				'Chybi sluzba typu ' . ExportAuditLogger::class . '. Exportovana data nesmi'
-				. ' opustit system bez auditni stopy, takze zapisovac auditu je povinny -'
-				. ' zaregistruj implementaci (napr. z adt/fancyadmin).'
-			);
 		}
 
 		// uloziste souboru vlastni projekt (napr. adt/files) - default lokalni
