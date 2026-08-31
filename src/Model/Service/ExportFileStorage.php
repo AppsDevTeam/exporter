@@ -20,6 +20,6 @@ interface ExportFileStorage
 	/** lokalni cesta pro FileResponse (sync download); null = soubor neexistuje */
 	public function getLocalPath(Export $export): ?string;
 
-	/** smaze soubor exportu (retence souboru; auditni zaznam se nedotyka) */
+	/** smaze soubor exportu (retence souboru) */
 	public function purge(Export $export): void;
 }

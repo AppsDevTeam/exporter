@@ -8,11 +8,9 @@ use ADT\Exporter\Model\Service\DefaultExportMailFactory;
 use ADT\Exporter\Model\Service\ExportFileGenerator;
 use ADT\Exporter\Model\Service\ExportMailFactory;
 use ADT\Exporter\Console\PurgeExportFilesCommand;
-use ADT\Exporter\Model\Service\ExportActorProvider;
 use ADT\Exporter\Model\Service\ExportFileStorage;
 use ADT\Exporter\Model\Service\Exporter;
 use ADT\Exporter\Model\Service\LocalExportFileStorage;
-use ADT\Exporter\Model\Service\NullExportActorProvider;
 use Nette\DI\CompilerExtension;
 use Nette\Schema\Expect;
 use Nette\Schema\Schema;
@@ -41,9 +39,10 @@ class ExporterExtension extends CompilerExtension
 			// (napr. nad aplikacnim File ekosystemem) neni potreba
 			'fileDir' => Expect::string('/tmp/exports'),
 			'downloadLink' => Expect::string()->required(),
-			// callback auditniho zapisovace, napr. [@fancyAdmin.auditLogger, log]
-			// - viz Exporter::setAuditLogger(). Bez nej se audit nepise.
-			'auditLogger' => Expect::mixed(),
+			// callbacky udalosti, napr. onExport: [[@nejakaSluzba, exportProbehl]]
+			// - viz Exporter::$onExport a $onDownload
+			'onExport' => Expect::listOf('mixed'),
+			'onDownload' => Expect::listOf('mixed'),
 		]);
 	}
 
@@ -58,9 +57,12 @@ class ExporterExtension extends CompilerExtension
 				'downloadLink' => $config->downloadLink,
 			]);
 
-		if ($config->auditLogger !== null) {
-			$builder->getDefinition($this->prefix('exporter'))
-				->addSetup('setAuditLogger', [$config->auditLogger]);
+		$exporter = $builder->getDefinition($this->prefix('exporter'));
+		foreach ($config->onExport as $callback) {
+			$exporter->addSetup('$onExport[]', [$callback]);
+		}
+		foreach ($config->onDownload as $callback) {
+			$exporter->addSetup('$onDownload[]', [$callback]);
 		}
 
 		$builder->addDefinition($this->prefix('purgeExportFilesCommand'))
@@ -77,13 +79,6 @@ class ExporterExtension extends CompilerExtension
 		if (!$builder->findByType(ExportMailFactory::class)) {
 			$builder->addDefinition($this->prefix('mailFactory'))
 				->setType(DefaultExportMailFactory::class);
-		}
-
-		// aktera dodava aplikace (SecurityUser) - bez vlastni sluzby se
-		// audituje bez aktera (cron/CLI kontexty)
-		if (!$builder->findByType(ExportActorProvider::class)) {
-			$builder->addDefinition($this->prefix('actorProvider'))
-				->setType(NullExportActorProvider::class);
 		}
 
 		// uloziste souboru vlastni projekt (napr. adt/files) - default lokalni

@@ -14,7 +14,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 /**
  * Uklid vygenerovanych souboru exportu (cron, typicky denne):
  *   php bin/console exporter:purge-files [dny]
- * Auditni zaznamy zustavaji - maze se jen soubor na disku.
+ * Provozni zaznam zustava - maze se jen soubor na disku.
  */
 #[AsCommand(name: 'exporter:purge-files')]
 class PurgeExportFilesCommand extends Command

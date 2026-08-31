@@ -9,23 +9,25 @@ use ADT\DoctrineComponents\EntityManager;
 use ADT\DoctrineComponents\QueryObject\QueryObjectInterface;
 use ADT\Exporter\Model\Entities\Export;
 
-use Closure;
+
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\ORM\QueryBuilder;
 use Nette\Application\LinkGenerator;
 use Nette\Mail\Mailer;
+use Nette\Utils\Arrays;
 
 /**
  * Jednotne hrdlo vsech exportu dat. V JEDNE transakci vznika:
- *   - AUDITNI udalost pres callback setAuditLogger() (kdo/kdy/co presne - enumerace
- *     ID, DQL, filtry - a kam to odeslo). Knihovna nevlastni tabulku ani
- *     entitu: zapisovac dodava aplikace nebo nadrazeny balicek, ktery
- *     vsechny auditni udalosti sbira do jednoho streamu.
  *   - Export: PROVOZNI zaznam - ridi background regeneraci, soubor
  *     (pres ExportFileStorage - typicky aplikacni File ekosystem),
  *     doruceni a download
  *   - pripadny background job (nad syncRowLimit nebo forceBackground)
+ *   - a zavolaji se callbacky $onExport
+ *
+ * Knihovna sama nic nedokumentuje ani nelogovuje: jen ohlasi udalostmi
+ * $onExport a $onDownload, ze se neco stalo, a co s tim - audit, notifikace,
+ * statistika - rozhoduje projekt tim, co do nich zaregistruje.
  *
  * Registrace queue callbacku:
  *   backgroundQueue: callbacks: processExport: [@exporter.exporter, processExport]
@@ -34,13 +36,27 @@ final class Exporter
 {
 	public const string QUEUE_CALLBACK = 'processExport';
 
-	/** zadani exportu - data byla vybrana a soubor vznikl */
-	public const string ACTION_EXPORT = 'export';
+	/**
+	 * Export byl zadan - data jsou vybrana a soubor vznikl. Vola se ve STEJNE
+	 * transakci jako provozni zaznam, takze co v callbacku zapises, vznikne
+	 * atomicky s exportem (a naopak: vyjimka export zrusi).
+	 *
+	 * $sections nese popis toho, co presne odeslo a podle ceho - vycet ID,
+	 * dql s parametry a vycet exportovanych poli. V provoznim zaznamu
+	 * ($export->getSections()) tyhle udaje nejsou, ten nese jen to, cim se
+	 * soubor znovu vyrobi.
+	 *
+	 * @var array<callable(Export $export, ExportRequest $request, array $sections, int $rowCount): void>
+	 */
+	public array $onExport = [];
 
-	/** vydej souboru - okamzik, kdy data opustila system */
-	public const string ACTION_DOWNLOAD = 'download';
-
-	private ?Closure $auditLogger = null;
+	/**
+	 * Soubor byl vydan ke stazeni - okamzik, kdy data opustila system.
+	 * Vola se opakovane, kdykoli si nekdo soubor stahne.
+	 *
+	 * @var array<callable(Export $export): void>
+	 */
+	public array $onDownload = [];
 
 	/** @var array<class-string, ExportFileGenerator> */
 	private array $generators = [];
@@ -51,87 +67,41 @@ final class Exporter
 		private readonly Mailer $mailer,
 		private readonly ExportMailFactory $mailFactory,
 		private readonly ExportFileStorage $fileStorage,
-		private readonly ExportActorProvider $actorProvider,
 		private readonly LinkGenerator $linkGenerator,
 		private readonly int $syncRowLimit,
 		private readonly string $downloadLink,
 	) {}
 
-	/**
-	 * Nasmeruje auditni udalosti exportu do auditniho streamu aplikace.
-	 *
-	 * Callback dostane jen SKALARY A POLE, takze implementace nemusi zaviset
-	 * na teto knihovne:
-	 *
-	 *   function (
-	 *       string $action,                 // ACTION_* konstanta
-	 *       DateTimeImmutable $createdAt,   // v UTC
-	 *       ?string $correlationId,         // id provozniho zaznamu exportu
-	 *       array $actor,                   // ['id','label','data','ip','userAgent']
-	 *       array $payload,                 // identifier, rowCount a dale dle akce
-	 *       bool $detached,                 // FALSE - viz nize
-	 *   ): void
-	 *
-	 * Zapisuje se s $detached = FALSE, tedy ve STEJNE transakci jako provozni
-	 * zaznam: audit a export maji vzniknout atomicky, aby nemohl existovat
-	 * jeden bez druheho.
-	 *
-	 * V neonu:  exporter: auditLogger: [@nejakyAuditLogger, log]
-	 */
-	public function setAuditLogger(?callable $auditLogger): void
-	{
-		$this->auditLogger = $auditLogger !== null ? Closure::fromCallable($auditLogger) : null;
-	}
-
 	public function export(ExportRequest $request): Export
 	{
 		// materializovana sekce se rozpada na dve nepretinajici se poloviny:
 		// provozni potrebuje k regeneraci sloupce vcetne rendrovaci vystroje,
-		// audit naopak dql + parametry (ty provoz necte, regeneruje se z ids)
+		// $onExport naopak dql + parametry (ty provoz necte, regeneruje se z ids)
 		$sections = [];
-		$auditSections = [];
+		$eventSections = [];
 		foreach ($request->sections as $section) {
 			$s = $this->materializeSection($section);
 			$sections[] = self::operationalSection($s);
-			$auditSections[] = self::auditSection($s);
+			$eventSections[] = self::eventSection($s);
 		}
 		$rowCount = self::countRows($sections);
 
-		$now = new DateTimeImmutable();
-		// audit jde v UTC, at ho lze korelovat s logy jinych systemu a at
-		// neni pri prechodu na zimni cas jedna hodina v roce nejednoznacna;
-		// provozni zaznam si nechava lokalni cas jako zbytek aplikace
-		$nowUtc = $now->setTimezone(new DateTimeZone('UTC'));
-
 		/** @var Export $export */
 		$export = new ($this->em->findEntityClassByInterface(Export::class));
-		$export->setCreatedAt($now)
+		$export->setCreatedAt(new DateTimeImmutable())
 			->setIdentifier($request->identifier)
 			->setSections($sections)
 			->setGenerator(get_class($request->generator))
 			->setEmail($request->email)
 			->setInBackground($request->forceBackground || $rowCount > $this->syncRowLimit);
 
-		$actor = $this->actorProvider->getActor();
-
-		// audit + provozni zaznam + job v JEDNE transakci: zadny export bez
-		// auditu, zadny audit bez exportu, zadny job bez obojiho. Auditni
-		// zaznam je nemenny (konstruktor) a aktera nese denormalizovane.
-		$this->em->wrapInTransaction(function () use ($export, $request, $auditSections, $rowCount, $nowUtc, $actor) {
+		// Provozni zaznam, $onExport a pripadny job v JEDNE transakci: co si
+		// projekt v callbacku zapise, vznikne atomicky s exportem - a naopak,
+		// vyjimka z callbacku export zrusi.
+		$this->em->wrapInTransaction(function () use ($export, $request, $eventSections, $rowCount) {
 			$this->em->persist($export);
 			$this->em->flush();
-			$this->logAudit(
-				self::ACTION_EXPORT,
-				$nowUtc,
-				(string) $export->getId(),
-				$actor,
-				[
-					'identifier' => $request->identifier,
-					'rowCount' => $rowCount,
-					'sections' => $auditSections,
-					'recipientEmail' => $request->email,
-				],
-			);
+			Arrays::invoke($this->onExport, $export, $request, $eventSections, $rowCount);
 			if ($export->isInBackground()) {
 				$this->backgroundQueue->publish(self::QUEUE_CALLBACK, ['exportId' => $export->getId()]);
 			}
@@ -145,30 +115,19 @@ final class Exporter
 	}
 
 	/**
-	 * Zaznamena STAZENI souboru - vola presenter TESNE PRED vydanim souboru,
-	 * az po overeni opravneni.
+	 * Ohlasi, ze soubor byl vydan ke stazeni - vola presenter TESNE PRED
+	 * vydanim souboru, az po overeni opravneni.
 	 *
 	 * Data opousteji system az tady, ne pri zadani exportu: odkaz chodi
 	 * e-mailem, plati po celou retenci souboru a pouzit ho muze i nekdo jiny
-	 * nez zadavatel. Bez tohoto zaznamu vypada deset stazeni v auditu stejne
-	 * jako zadne.
+	 * nez zadavatel - a stahnout se da opakovane.
 	 *
-	 * Zamerne NEODCHYTAVA vyjimky: nepovede-li se audit, soubor se nevyda -
-	 * stejne pravidlo jako u zadani exportu.
+	 * Zamerne NEODCHYTAVA vyjimky: kdyz callback selze, soubor se nevyda.
+	 * Jestli je to zadouci, rozhoduje projekt tim, co do callbacku da.
 	 */
-	public function logDownload(Export $export): void
+	public function fileDownloaded(Export $export): void
 	{
-		$this->logAudit(
-			self::ACTION_DOWNLOAD,
-			new DateTimeImmutable('now', new DateTimeZone('UTC')),
-			(string) $export->getId(),
-			$this->actorProvider->getActor(),
-			[
-				'identifier' => $export->getIdentifier(),
-				'rowCount' => self::countRows($export->getSections()),
-				'fileName' => $export->getFileName(),
-			],
-		);
+		Arrays::invoke($this->onDownload, $export);
 	}
 
 	/** lokalni cesta souboru pro sync download (FileResponse) */
@@ -201,8 +160,8 @@ final class Exporter
 
 	/**
 	 * Smaze SOUBORY exportu starsich nez $retentionDays (exportovana data
-	 * nesmi lezet na disku dele, nez je nutne k doruceni). Auditni zaznamy
-	 * se nedotyka; provozni zaznam dostane filesPurgedAt.
+	 * nesmi lezet na disku dele, nez je nutne k doruceni). Provozni zaznam
+	 * dostane filesPurgedAt, jinak se nemeni nic.
 	 */
 	public function purgeFiles(int $retentionDays): int
 	{
@@ -222,31 +181,6 @@ final class Exporter
 		return $purged;
 	}
 
-	/**
-	 * Bez nastaveneho callbacku se audit nepise. Zapis probiha ve stejne
-	 * transakci jako provozni zaznam ($detached = false), aby audit a export
-	 * vznikly atomicky.
-	 */
-	private function logAudit(
-		string $action,
-		DateTimeImmutable $createdAt,
-		?string $correlationId,
-		?ExportActor $actor,
-		array $payload,
-	): void {
-		if ($this->auditLogger === null) {
-			return;
-		}
-
-		($this->auditLogger)(
-			$action,
-			$createdAt,
-			$correlationId,
-			$actor?->toArray() ?? ExportActor::emptyArray(),
-			$payload,
-			false,
-		);
-	}
 
 	/** pocet radku napric sekcemi (entitni nesou ids, agregatove rovnou rows) */
 	private static function countRows(array $sections): int
@@ -325,13 +259,13 @@ final class Exporter
 	}
 
 	/**
-	 * AUDITNI projekce sekce - "co presne odeslo a podle ceho":
+	 * Projekce sekce pro $onExport - "co presne odeslo a podle ceho":
 	 * dql + parametry skutecne spustene query, vycet ID (u agregatovych
 	 * sekci primo radky) a VYCET EXPORTOVANYCH POLI. Ze sloupcu se bere
 	 * jen cesta k datum; nazev tridy a preklad popisku jsou rendrovaci
 	 * vystroj, ktera o odeslanych datech nevypovida nic.
 	 */
-	private static function auditSection(array $section): array
+	private static function eventSection(array $section): array
 	{
 		$fields = [];
 		foreach ($section['columns'] as $key => $def) {

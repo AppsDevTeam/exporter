@@ -12,8 +12,8 @@ use DateTimeImmutable;
  * pres vlastni File ekosystem); po doruceni a uplynuti retence souboru muze
  * aplikace radek casem smazat.
  *
- * Auditni stopa je samostatna udalost zapsana auditnim callbackem (bez vazby na
- * soubor) - tu odvazi mover do dlouhodobeho auditniho uloziste.
+ * Popis toho, co presne odeslo a podle ceho, tento zaznam NENESE - dostane
+ * ho callback $onExport, a co s nim projekt udela, je jeho vec.
  */
 interface Export
 {
@@ -25,14 +25,14 @@ interface Export
 	/**
 	 * Sekce pro background regeneraci: [{name, entityClass|null, ids|null,
 	 * rows|null, columns}] - jen to, cim se soubor vyrobi. Dql a parametry
-	 * jsou auditni vec a jdou do auditni udalosti, ne sem.
+	 * jsou tu zbytecne - dostane je callback $onExport.
 	 */
 	public function getSections(): array;
 	public function setSections(array $sections): static;
 
 	/**
 	 * Sluzba, ktera soubor vyrobi (class-string ExportFileGenerator).
-	 * Provozni udaj - background regenerace na nej nesmi potrebovat audit.
+	 * Provozni udaj: background regenerace ho potrebuje, takze musi byt tady.
 	 * @return class-string
 	 */
 	public function getGenerator(): string;

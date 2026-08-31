@@ -15,13 +15,13 @@ use Doctrine\ORM\QueryBuilder;
  *  - QueryObject / QueryBuilder / pole ID -> entity (materializuje se na ID
  *    v okamziku volani, background je docte)
  *  - pole poli (radky) -> vypoctena/agregovana data bez entit; radky se ulozi
- *    PRIMO do auditniho zaznamu (a background je uz nedopocitava) - urceno
+ *    PRIMO do provozniho zaznamu (a background je uz nedopocitava) - urceno
  *    pro male souhrny (sales summary apod.), ne pro tisice radku
  */
 final readonly class ExportSection
 {
 	/**
-	 * @param string $name nazev sekce (nazev sheetu, klic v auditu)
+	 * @param string $name nazev sekce (nazev sheetu i klic v udalostech)
 	 * @param QueryObjectInterface|QueryBuilder|array $source
 	 * @param array $columns ['sloupec' => 'Popisek', ...] pro entity;
 	 *        pro raw radky poradi/nazvy sloupcu vystupu

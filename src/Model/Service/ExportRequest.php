@@ -9,10 +9,10 @@ namespace ADT\Exporter\Model\Service;
  * Sklada se z jedne ci vice sekci (Excel: sheet per sekce; CSV: prave jedna).
  * Selekce kazde sekce se materializuje V OKAMZIKU volani - viz ExportSection.
  *
- * Zadny popis selekce se sem NEPREDAVA: cim se vybiralo, si audit vytahne
- * ze skutecne spustene query (dql + parameters + vycet ID v sekci). Udaj
- * dodany volajicim by byl neoveritelny a mohl by se s realnym dotazem
- * rozejit - v auditu je pole, ktere muze lhat, horsi nez zadne.
+ * Zadny popis selekce se sem NEPREDAVA: cim se vybiralo, se vycte ze
+ * skutecne spustene query (dql + parameters + vycet ID v sekci) a preda
+ * callbacku $onExport. Udaj dodany volajicim by byl neoveritelny a mohl by
+ * se s realnym dotazem rozejit.
  */
 final readonly class ExportRequest
 {
@@ -20,7 +20,7 @@ final readonly class ExportRequest
 	public array $sections;
 
 	/**
-	 * @param string $identifier lidsky citelny typ exportovanych dat - klicove pole auditu
+	 * @param string $identifier lidsky citelny typ exportovanych dat
 	 * @param ExportSection[]|ExportSection $sections
 	 * @param ExportFileGenerator $generator vytvori soubor (sluzba, viz README)
 	 * @param string|null $email prijemce pri background zpracovani
