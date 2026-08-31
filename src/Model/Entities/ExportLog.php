@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ADT\Exporter\Model\Entities;
 
+use ADT\Exporter\Model\Doctrine\UtcDateTimeImmutableType;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping\Column;
 use Doctrine\ORM\Mapping\Entity;
@@ -37,7 +38,18 @@ final class ExportLog
 	private ?int $id = null;
 
 	public function __construct(
-		#[Column]
+		/**
+		 * Identita udalosti nezavisla na databazi. Autoinkrementovane id je
+		 * unikatni jen v ramci jedne DB, a tychze tabulek je vic (kazdy
+		 * projekt ma svou) - po svezeni do spolecneho uloziste by id
+		 * kolidovala a nesla by dedupikovat.
+		 */
+		#[Column(length: 36, unique: true)]
+		private readonly string $uuid,
+		/** ze KTEREHO systemu zaznam pochazi - atribuce zdroje po svezeni */
+		#[Column(nullable: true)]
+		private readonly ?string $source,
+		#[Column(type: UtcDateTimeImmutableType::NAME)]
 		private readonly DateTimeImmutable $createdAt,
 		#[Column]
 		private readonly string $identifier,
@@ -71,9 +83,18 @@ final class ExportLog
 		/** cim dalsim projekt aktera identifikuje (jmeno, e-mail, role, ucet...) */
 		#[Column(type: 'json', nullable: true)]
 		private readonly ?array $createdBy,
+		/** odkud pozadavek prisel - ploche, stoji na tom detekcni pravidla */
+		#[Column(length: 45, nullable: true)]
+		private readonly ?string $sourceIp,
+		/** klient, ktery export vyzadal (delky bez hornino limitu - text) */
+		#[Column(type: 'text', nullable: true)]
+		private readonly ?string $userAgent,
 	) {}
 
 	public function getId(): ?int { return $this->id; }
+	public function getUuid(): string { return $this->uuid; }
+	public function getSource(): ?string { return $this->source; }
+	/** vzdy v UTC - viz UtcDateTimeImmutableType */
 	public function getCreatedAt(): DateTimeImmutable { return $this->createdAt; }
 	public function getIdentifier(): string { return $this->identifier; }
 	public function getSections(): array { return $this->sections; }
@@ -83,4 +104,6 @@ final class ExportLog
 	public function getCreatedById(): ?string { return $this->createdById; }
 	public function getCreatedByLabel(): ?string { return $this->createdByLabel; }
 	public function getCreatedBy(): ?array { return $this->createdBy; }
+	public function getSourceIp(): ?string { return $this->sourceIp; }
+	public function getUserAgent(): ?string { return $this->userAgent; }
 }

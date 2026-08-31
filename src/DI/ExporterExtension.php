@@ -24,6 +24,11 @@ use Nette\Schema\Schema;
  *     syncRowLimit: 500          # nad limit -> background + e-mail
  *     fileDir: %appDir%/../data/exports
  *     downloadLink: ':Portal:Export:download'
+ *     source: %project%          # oznaceni systemu v auditu
+ *
+ * Auditni cas je vzdy v UTC, coz vyzaduje registraci typu:
+ *     dbal: connection: types:
+ *         utc_datetime_immutable: ADT\Exporter\Model\Doctrine\UtcDateTimeImmutableType
  *
  * Queue callback (background-queue-nette):
  *     backgroundQueue: callbacks: processExport: [@exporter.exporter, processExport]
@@ -41,6 +46,10 @@ class ExporterExtension extends CompilerExtension
 			// (napr. nad aplikacnim File ekosystemem) neni potreba
 			'fileDir' => Expect::string('/tmp/exports'),
 			'downloadLink' => Expect::string()->required(),
+			// oznaceni systemu v auditnim zaznamu; nutne vsude, kde tychze
+			// tabulek existuje vic (projekt na projekt) a svazi se do jednoho
+			// auditniho uloziste - jinak nejde rict, odkud zaznam je
+			'source' => Expect::string()->nullable(),
 		]);
 	}
 
@@ -53,6 +62,7 @@ class ExporterExtension extends CompilerExtension
 			->setFactory(Exporter::class, [
 				'syncRowLimit' => $config->syncRowLimit,
 				'downloadLink' => $config->downloadLink,
+				'source' => $config->source,
 			]);
 
 		$builder->addDefinition($this->prefix('purgeExportFilesCommand'))

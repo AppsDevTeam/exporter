@@ -45,6 +45,8 @@ final class Exporter
 		private readonly LinkGenerator $linkGenerator,
 		private readonly int $syncRowLimit,
 		private readonly string $downloadLink,
+		/** oznaceni systemu v auditu - viz ExportLog::$source */
+		private readonly ?string $source = null,
 	) {}
 
 	public function export(ExportRequest $request): Export
@@ -82,6 +84,8 @@ final class Exporter
 			$this->em->persist($export);
 			$this->em->flush();
 			$this->em->persist(new ExportLog(
+				uuid: self::uuid4(),
+				source: $this->source,
 				createdAt: $now,
 				identifier: $request->identifier,
 				sections: $auditSections,
@@ -91,6 +95,8 @@ final class Exporter
 				createdById: $actor?->id !== null ? (string) $actor->id : null,
 				createdByLabel: $actor?->label,
 				createdBy: $actor?->data ?: null,
+				sourceIp: $actor?->ip,
+				userAgent: $actor?->userAgent,
 			));
 			$this->em->flush();
 			if ($export->isInBackground()) {
@@ -154,6 +160,19 @@ final class Exporter
 		}
 		$this->em->flush();
 		return $purged;
+	}
+
+	/**
+	 * UUID v4 bez zavislosti na dalsi knihovne - identita auditni udalosti
+	 * musi vzniknout i v projektu, ktery zadny uuid balicek nema.
+	 */
+	private static function uuid4(): string
+	{
+		$b = random_bytes(16);
+		$b[6] = chr((ord($b[6]) & 0x0f) | 0x40);   // verze 4
+		$b[8] = chr((ord($b[8]) & 0x3f) | 0x80);   // varianta RFC 4122
+
+		return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($b), 4));
 	}
 
 	/** @internal registrace generatoru z DI (viz ExporterExtension) */

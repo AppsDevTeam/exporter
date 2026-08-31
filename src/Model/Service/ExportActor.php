@@ -24,10 +24,15 @@ final readonly class ExportActor
 	 * @param string|null $label lidsky citelne oznaceni pro cteni logu
 	 * @param array $data cokoliv dalsiho, cim projekt aktera identifikuje
 	 *        (jmeno, e-mail, role, prihlasovaci jmeno, tenant...)
+	 * @param string|null $ip odkud pozadavek prisel; ploche pole, protoze
+	 *        na nem stoji detekcni pravidla typu "stejny ucet, jina zeme"
+	 * @param string|null $userAgent klient, ktery export vyzadal
 	 */
 	public function __construct(
 		public int|string|null $id = null,
 		public ?string $label = null,
 		public array $data = [],
+		public ?string $ip = null,
+		public ?string $userAgent = null,
 	) {}
 }

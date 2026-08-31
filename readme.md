@@ -172,3 +172,23 @@ exportu vrati chybu.
   "kam data odesla" (jina otazka nez kdo export spustil)
 - zaznam se po vytvoreni needituje; dlouhodobou retenci resi mover do
   auditniho uloziste (viz projektova infrastruktura)
+
+### Pripravenost pro SIEM
+
+- `uuid` + `source` = identita udalosti nezavisla na databazi. Autoinkrement
+  je unikatni jen v jedne DB a tychze tabulek existuje vic (projekt na
+  projekt), takze po svezeni do spolecneho uloziste by `id` kolidovala
+  a nesla by dedupikovat ani atribuovat ke zdroji
+- `created_at` je VZDY v UTC (`utc_datetime_immutable`) - jinak by cas sedel
+  o offset vedle logu ostatnich systemu a pri prechodu na zimni cas by byla
+  jedna hodina v roce nejednoznacna (2:30 nastane dvakrat)
+- `source_ip` a `user_agent` jsou ploche, protoze na nich stoji detekcni
+  pravidla ("stejny ucet, jina zeme")
+- mapovani na ECS: `created_at` -> `@timestamp`, `identifier` -> `event.action`,
+  `created_by_id`/`_label` -> `user.id`/`user.name`, `recipient_email` ->
+  `email.to.address`, `source_ip` -> `source.ip`
+- POZOR na velikost: `sections` nese vycet ID, takze u velkeho exportu jde
+  o stovky KB az jednotky MB. Do SIEM patri souhrn (identifier, akter,
+  row_count, fields, prijemce) a odkaz pres `uuid`; enumerace ID zustava
+  v archivnim ulozisti - jinak se udalost usekne na limitu ingesce
+  (Splunk ma default TRUNCATE 10 000 B)
