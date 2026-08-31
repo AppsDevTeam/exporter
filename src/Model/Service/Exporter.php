@@ -49,10 +49,16 @@ final class Exporter
 
 	public function export(ExportRequest $request): Export
 	{
+		// materializovana sekce se rozpada na dve nepretinajici se poloviny:
+		// provozni potrebuje k regeneraci sloupce vcetne rendrovaci vystroje,
+		// audit naopak dql + parametry (ty provoz necte, regeneruje se z ids)
 		$sections = [];
+		$auditSections = [];
 		$rowCount = 0;
 		foreach ($request->sections as $section) {
-			$sections[] = $s = $this->materializeSection($section);
+			$s = $this->materializeSection($section);
+			$sections[] = self::operationalSection($s);
+			$auditSections[] = self::auditSection($s);
 			$rowCount += $s['ids'] !== null ? count($s['ids']) : count($s['rows']);
 		}
 
@@ -72,13 +78,13 @@ final class Exporter
 		// audit + provozni zaznam + job v JEDNE transakci: zadny export bez
 		// auditu, zadny audit bez exportu, zadny job bez obojiho. Auditni
 		// zaznam je nemenny (konstruktor) a aktera nese denormalizovane.
-		$this->em->wrapInTransaction(function () use ($export, $request, $sections, $rowCount, $now, $actor) {
+		$this->em->wrapInTransaction(function () use ($export, $request, $auditSections, $rowCount, $now, $actor) {
 			$this->em->persist($export);
 			$this->em->flush();
 			$this->em->persist(new ExportLog(
 				createdAt: $now,
 				identifier: $request->identifier,
-				sections: $sections,
+				sections: $auditSections,
 				rowCount: $rowCount,
 				recipientEmail: $request->email,
 				exportId: $export->getId(),
@@ -196,6 +202,48 @@ final class Exporter
 	{
 		return $this->generators[$class]
 			?? throw new \RuntimeException("Export generator '$class' neni registrovany jako sluzba.");
+	}
+
+	/**
+	 * PROVOZNI projekce sekce - presne to, co potrebuje generateFile():
+	 * nacist radky (ids/rows + entityClass) a zrekonstruovat sloupce vcetne
+	 * jejich trid a popisku. Dql ani parametry sem nepatri, regeneruje se
+	 * z ulozenych ids - jinak by soubor neodpovidal dorucenemu originalu.
+	 */
+	private static function operationalSection(array $section): array
+	{
+		return [
+			'name' => $section['name'],
+			'entityClass' => $section['entityClass'],
+			'ids' => $section['ids'],
+			'rows' => $section['rows'],
+			'columns' => $section['columns'],
+		];
+	}
+
+	/**
+	 * AUDITNI projekce sekce - "co presne odeslo a podle ceho":
+	 * dql + parametry skutecne spustene query, vycet ID (u agregatovych
+	 * sekci primo radky) a VYCET EXPORTOVANYCH POLI. Ze sloupcu se bere
+	 * jen cesta k datum; nazev tridy a preklad popisku jsou rendrovaci
+	 * vystroj, ktera o odeslanych datech nevypovida nic.
+	 */
+	private static function auditSection(array $section): array
+	{
+		$fields = [];
+		foreach ($section['columns'] as $key => $def) {
+			$fields[] = is_array($def) ? ($def['column'] ?? $key) : $key;
+		}
+
+		return [
+			'name' => $section['name'],
+			'entityClass' => $section['entityClass'],
+			'fields' => $fields,
+			'ids' => $section['ids'],
+			'rows' => $section['rows'],
+			'dql' => $section['dql'],
+			'parameters' => $section['parameters'],
+		];
 	}
 
 	private function materializeSection(ExportSection $section): array

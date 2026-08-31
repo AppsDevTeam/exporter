@@ -42,11 +42,15 @@ final class ExportLog
 		#[Column]
 		private readonly string $identifier,
 		/**
-		 * Sekce: [{name, entityClass|null, ids|null, rows|null, columns, dql|null, parameters|null}]
+		 * Sekce: [{name, entityClass|null, fields, ids|null, rows|null, dql|null, parameters|null}]
 		 *
-		 * JEDINY zdroj pravdy o tom, co a podle ceho odeslo: dql + parameters
-		 * se vytahuji ze skutecne spustene query, ids jsou jeji vysledek.
-		 * Zadny popis selekce dodany volajicim se neuklada - nesel by overit.
+		 * JEDINY zdroj pravdy o tom, co odeslo a podle ceho: dql + parameters
+		 * se vytahuji ze skutecne spustene query, ids jsou jeji vysledek,
+		 * fields rikaji, ktera pole entity soubor obsahoval. Zadny popis
+		 * selekce dodany volajicim se neuklada - nesel by overit.
+		 *
+		 * Rendrovaci vystroj sloupcu (tridy, preklady popisku) je PROVOZNI
+		 * vec a zustava na Export - o odeslanych datech nevypovida nic.
 		 */
 		#[Column(type: 'json')]
 		private readonly array $sections,

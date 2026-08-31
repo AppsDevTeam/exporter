@@ -22,7 +22,11 @@ interface Export
 	public function getIdentifier(): string;
 	public function setIdentifier(string $identifier): static;
 
-	/** operacni kopie sekci (ids/rows/columns) pro background regeneraci */
+	/**
+	 * Sekce pro background regeneraci: [{name, entityClass|null, ids|null,
+	 * rows|null, columns}] - jen to, cim se soubor vyrobi. Dql a parametry
+	 * jsou auditni vec a zustavaji v ExportLog.
+	 */
 	public function getSections(): array;
 	public function setSections(array $sections): static;
 
