@@ -16,6 +16,8 @@ Provozni a auditni data jsou ODDELENA (stejny vzor jako session vs. auth log):
   File ekosystem); po doruceni a retenci souboru muze zaznam casem zaniknout
 - **export_log** (audit): append-only "kdo/kdy/co presne" BEZ vazby na
   soubor - odvazi ho mover do dlouhodobeho auditniho uloziste
+- **export_download_log** (audit): kazdy VYDEJ souboru zvlast - data
+  opousteji system az stazenim, opakovane a klidne nekym jinym
 
 Oba zaznamy i pripadny background job vznikaji v JEDNE transakci (outbox
 garance adt/background-queue).
@@ -128,12 +130,19 @@ public function actionExport(int $id): void
     if ($export->getCreatedBy()?->getId() !== $this->securityUser->getId()) {
         $this->error('', \Nette\Http\IResponse::S403_Forbidden);
     }
+    $this->exporter->logDownload($export);   // az po overeni, pred vydanim
     $this->sendResponse(new FileResponse($export->getFile()->getPath(), $export->getFileName()));
 }
 ```
 
 Overeni vlastnictvi je PROVOZNI vec, proto FK `created_by` na aplikacniho
 uzivatele zustava na `Export` - narozdil od auditu, ktery zadnou relaci nema.
+
+Presenter MUSI pred vydanim souboru zavolat `$this->exporter->logDownload($export)`
+(viz priklad vyse). Zadani exportu a vydej souboru jsou dve ruzne udalosti:
+odkaz plati po celou retenci souboru, da se pouzit opakovane a klidne nekym
+jinym nez zadavatelem - bez toho vypada deset stazeni v auditu jako zadne.
+`logDownload()` zamerne neodchytava vyjimky: kdyz selze audit, soubor se nevyda.
 
 Neprihlaseneho uzivatele posle bezny auth mechanismus aplikace na login
 a po prihlaseni zpet - odkaz z e-mailu tak funguje kdykoli behem retence

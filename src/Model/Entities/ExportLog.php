@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ADT\Exporter\Model\Entities;
 
+use ADT\Exporter\Model\Service\ExportActor;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping\Column;
 use Doctrine\ORM\Mapping\Entity;
@@ -31,6 +32,8 @@ use Doctrine\ORM\Mapping\Table;
 #[Table(name: 'export_log')]
 final class ExportLog
 {
+	use ActorSnapshotTrait;
+
 	#[Id]
 	#[Column]
 	#[GeneratedValue]
@@ -83,22 +86,10 @@ final class ExportLog
 		/** vazba na provozni zaznam (ten muze casem zaniknout, audit ne) */
 		#[Column(nullable: true)]
 		private readonly ?int $exportId,
-		/** spojovaci klic aktera ve zdrojovem systemu */
-		#[Column(nullable: true)]
-		private readonly ?string $createdById,
-		/** lidsky citelne oznaceni aktera - aby sel log cist bez znalosti tvaru createdBy */
-		#[Column(nullable: true)]
-		private readonly ?string $createdByLabel,
-		/** cim dalsim projekt aktera identifikuje (jmeno, e-mail, role, ucet...) */
-		#[Column(type: 'json', nullable: true)]
-		private readonly ?array $createdBy,
-		/** odkud pozadavek prisel - ploche, stoji na tom detekcni pravidla */
-		#[Column(length: 45, nullable: true)]
-		private readonly ?string $sourceIp,
-		/** klient, ktery export vyzadal (delky bez hornino limitu - text) */
-		#[Column(type: 'text', nullable: true)]
-		private readonly ?string $userAgent,
-	) {}
+		?ExportActor $actor = null,
+	) {
+		$this->setActor($actor);
+	}
 
 	public function getId(): ?int { return $this->id; }
 	public function getUuid(): string { return $this->uuid; }
@@ -109,9 +100,4 @@ final class ExportLog
 	public function getRowCount(): int { return $this->rowCount; }
 	public function getRecipientEmail(): ?string { return $this->recipientEmail; }
 	public function getExportId(): ?int { return $this->exportId; }
-	public function getCreatedById(): ?string { return $this->createdById; }
-	public function getCreatedByLabel(): ?string { return $this->createdByLabel; }
-	public function getCreatedBy(): ?array { return $this->createdBy; }
-	public function getSourceIp(): ?string { return $this->sourceIp; }
-	public function getUserAgent(): ?string { return $this->userAgent; }
 }

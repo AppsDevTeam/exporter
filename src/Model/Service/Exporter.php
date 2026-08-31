@@ -8,6 +8,7 @@ use ADT\BackgroundQueue\BackgroundQueue;
 use ADT\DoctrineComponents\EntityManager;
 use ADT\DoctrineComponents\QueryObject\QueryObjectInterface;
 use ADT\Exporter\Model\Entities\Export;
+use ADT\Exporter\Model\Entities\ExportDownloadLog;
 use ADT\Exporter\Model\Entities\ExportLog;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -57,13 +58,12 @@ final class Exporter
 		// audit naopak dql + parametry (ty provoz necte, regeneruje se z ids)
 		$sections = [];
 		$auditSections = [];
-		$rowCount = 0;
 		foreach ($request->sections as $section) {
 			$s = $this->materializeSection($section);
 			$sections[] = self::operationalSection($s);
 			$auditSections[] = self::auditSection($s);
-			$rowCount += $s['ids'] !== null ? count($s['ids']) : count($s['rows']);
 		}
+		$rowCount = self::countRows($sections);
 
 		$now = new DateTimeImmutable();
 		// audit jde v UTC, at ho lze korelovat s logy jinych systemu a at
@@ -71,9 +71,15 @@ final class Exporter
 		// provozni zaznam si nechava lokalni cas jako zbytek aplikace
 		$nowUtc = $now->setTimezone(new DateTimeZone('UTC'));
 
+		// uuid auditni udalosti vznika predem, aby si ho provozni zaznam mohl
+		// odlozit a stazeni souboru se na nej pozdeji navazalo i po odvezeni
+		// auditni tabulky moverem
+		$auditUuid = self::uuid4();
+
 		/** @var Export $export */
 		$export = new ($this->em->findEntityClassByInterface(Export::class));
 		$export->setCreatedAt($now)
+			->setAuditUuid($auditUuid)
 			->setIdentifier($request->identifier)
 			->setSections($sections)
 			->setGenerator(get_class($request->generator))
@@ -85,11 +91,11 @@ final class Exporter
 		// audit + provozni zaznam + job v JEDNE transakci: zadny export bez
 		// auditu, zadny audit bez exportu, zadny job bez obojiho. Auditni
 		// zaznam je nemenny (konstruktor) a aktera nese denormalizovane.
-		$this->em->wrapInTransaction(function () use ($export, $request, $auditSections, $rowCount, $nowUtc, $actor) {
+		$this->em->wrapInTransaction(function () use ($export, $request, $auditSections, $rowCount, $nowUtc, $actor, $auditUuid) {
 			$this->em->persist($export);
 			$this->em->flush();
 			$this->em->persist(new ExportLog(
-				uuid: self::uuid4(),
+				uuid: $auditUuid,
 				source: $this->source,
 				createdAt: $nowUtc,
 				identifier: $request->identifier,
@@ -97,11 +103,7 @@ final class Exporter
 				rowCount: $rowCount,
 				recipientEmail: $request->email,
 				exportId: $export->getId(),
-				createdById: $actor?->id !== null ? (string) $actor->id : null,
-				createdByLabel: $actor?->label,
-				createdBy: $actor?->data ?: null,
-				sourceIp: $actor?->ip,
-				userAgent: $actor?->userAgent,
+				actor: $actor,
 			));
 			$this->em->flush();
 			if ($export->isInBackground()) {
@@ -114,6 +116,34 @@ final class Exporter
 		}
 
 		return $export;
+	}
+
+	/**
+	 * Zaznamena STAZENI souboru - vola presenter TESNE PRED vydanim souboru,
+	 * az po overeni opravneni.
+	 *
+	 * Data opousteji system az tady, ne pri zadani exportu: odkaz chodi
+	 * e-mailem, plati po celou retenci souboru a pouzit ho muze i nekdo jiny
+	 * nez zadavatel. Bez tohoto zaznamu vypada deset stazeni v auditu stejne
+	 * jako zadne.
+	 *
+	 * Zamerne NEODCHYTAVA vyjimky: nepovede-li se audit, soubor se nevyda -
+	 * stejne pravidlo jako u zadani exportu.
+	 */
+	public function logDownload(Export $export): void
+	{
+		$this->em->persist(new ExportDownloadLog(
+			uuid: self::uuid4(),
+			source: $this->source,
+			createdAt: new DateTimeImmutable('now', new DateTimeZone('UTC')),
+			exportUuid: $export->getAuditUuid(),
+			exportId: $export->getId(),
+			identifier: $export->getIdentifier(),
+			rowCount: self::countRows($export->getSections()),
+			fileName: $export->getFileName(),
+			actor: $this->actorProvider->getActor(),
+		));
+		$this->em->flush();
 	}
 
 	/** lokalni cesta souboru pro sync download (FileResponse) */
@@ -165,6 +195,17 @@ final class Exporter
 		}
 		$this->em->flush();
 		return $purged;
+	}
+
+	/** pocet radku napric sekcemi (entitni nesou ids, agregatove rovnou rows) */
+	private static function countRows(array $sections): int
+	{
+		$count = 0;
+		foreach ($sections as $section) {
+			$count += $section['ids'] !== null ? count($section['ids']) : count($section['rows']);
+		}
+
+		return $count;
 	}
 
 	/**

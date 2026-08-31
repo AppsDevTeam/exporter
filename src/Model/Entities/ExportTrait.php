@@ -12,6 +12,9 @@ trait ExportTrait
 	#[Column]
 	protected string $identifier;
 
+	#[Column(length: 36, nullable: true)]
+	protected ?string $auditUuid = null;
+
 	#[Column(type: 'json')]
 	protected array $sections = [];
 
@@ -38,6 +41,9 @@ trait ExportTrait
 
 	public function getIdentifier(): string { return $this->identifier; }
 	public function setIdentifier(string $identifier): static { $this->identifier = $identifier; return $this; }
+
+	public function getAuditUuid(): ?string { return $this->auditUuid; }
+	public function setAuditUuid(?string $auditUuid): static { $this->auditUuid = $auditUuid; return $this; }
 
 	public function getSections(): array { return $this->sections; }
 	public function setSections(array $sections): static { $this->sections = $sections; return $this; }
