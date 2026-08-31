@@ -41,14 +41,17 @@ final class ExportLog
 		private readonly DateTimeImmutable $createdAt,
 		#[Column]
 		private readonly string $identifier,
-		/** sekce: [{name, entityClass|null, ids|null, rows|null, columns, dql|null, parameters|null}] */
+		/**
+		 * Sekce: [{name, entityClass|null, ids|null, rows|null, columns, dql|null, parameters|null}]
+		 *
+		 * JEDINY zdroj pravdy o tom, co a podle ceho odeslo: dql + parameters
+		 * se vytahuji ze skutecne spustene query, ids jsou jeji vysledek.
+		 * Zadny popis selekce dodany volajicim se neuklada - nesel by overit.
+		 */
 		#[Column(type: 'json')]
 		private readonly array $sections,
 		#[Column]
 		private readonly int $rowCount,
-		/** CO si volajici vyzadal - citelny protejsek strojove selekce v sections */
-		#[Column(type: 'json', nullable: true)]
-		private readonly ?array $filters,
 		/** KAM data odesla (prijemce); jina informace nez akter, ktery export spustil */
 		#[Column(nullable: true)]
 		private readonly ?string $recipientEmail,
@@ -71,7 +74,6 @@ final class ExportLog
 	public function getIdentifier(): string { return $this->identifier; }
 	public function getSections(): array { return $this->sections; }
 	public function getRowCount(): int { return $this->rowCount; }
-	public function getFilters(): ?array { return $this->filters; }
 	public function getRecipientEmail(): ?string { return $this->recipientEmail; }
 	public function getExportId(): ?int { return $this->exportId; }
 	public function getCreatedById(): ?string { return $this->createdById; }

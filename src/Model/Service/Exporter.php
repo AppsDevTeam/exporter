@@ -80,7 +80,6 @@ final class Exporter
 				identifier: $request->identifier,
 				sections: $sections,
 				rowCount: $rowCount,
-				filters: $request->filters,
 				recipientEmail: $request->email,
 				exportId: $export->getId(),
 				createdById: $actor?->id !== null ? (string) $actor->id : null,

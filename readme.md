@@ -32,7 +32,6 @@ $export = $this->exporter->export(new ExportRequest(
     sections: new ExportSection('items', $queryObject, ['number' => 'Cislo', ...]),
     generator: $excelGenerator,       // vs. $csvGenerator = volba formatu
     email: $user->getEmail(),
-    filters: $filterState,
 ));
 
 // vicesheetovy report (ruzne zdroje, vcetne agregatu bez entit):
@@ -45,7 +44,6 @@ $export = $this->exporter->export(new ExportRequest(
     ],
     generator: $excelGenerator,
     email: $user->getEmail(),
-    filters: ['from' => ..., 'to' => ..., 'companies' => ...],
 ));
 
 if (!$export->isInBackground()) {
@@ -166,7 +164,11 @@ exportu vrati chybu.
   presny vycet ID + DQL s parametry, agregatove sekce primo snapshot radku
   (query nejde serializovat do jobu a pozdejsi prehrani by neodpovidalo
   dorucenemu souboru)
-- `filters` + `identifier` = citelny kontext pro auditora, `recipientEmail`
-  odpovida na "kam data odesla" (jina otazka nez kdo export spustil)
-- zaznam se po vytvoreni needituje (jen doplneni file/processedAt); dlouhodobou
-  retenci resi mover do auditniho uloziste (viz projektova infrastruktura)
+- CIM se vybiralo, nese vyhradne `sections` (dql + parameters ze SKUTECNE
+  spustene query). Knihovna zadny popis filtru od volajiciho neprijima:
+  neoverila by ho a mohl by se s realnym dotazem rozejit - v auditu je pole,
+  ktere muze lhat, horsi nez zadne
+- `identifier` + `rowCount` = rychly kontext, `recipientEmail` odpovida na
+  "kam data odesla" (jina otazka nez kdo export spustil)
+- zaznam se po vytvoreni needituje; dlouhodobou retenci resi mover do
+  auditniho uloziste (viz projektova infrastruktura)
