@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace ADT\Exporter\Model\Entities;
 
-use ADT\Exporter\Model\Doctrine\UtcDateTimeImmutableType;
 use DateTimeImmutable;
 use Doctrine\ORM\Mapping\Column;
 use Doctrine\ORM\Mapping\Entity;
@@ -49,7 +48,17 @@ final class ExportLog
 		/** ze KTEREHO systemu zaznam pochazi - atribuce zdroje po svezeni */
 		#[Column(nullable: true)]
 		private readonly ?string $source,
-		#[Column(type: UtcDateTimeImmutableType::NAME)]
+		/**
+		 * VZDY V UTC - Exporter sem UTC cas zapisuje a nic ho pres Doctrinu
+		 * necte (auditni zaznam je write-only, cte ho mover pres SQL).
+		 *
+		 * Getter zamerne NEEXISTUJE: obycejny datetime_immutable sice UTC
+		 * spravne zapise (format() bere zonu z objektu), ale pri hydrataci
+		 * dosadi defaultni zonu aplikace, takze precteny okamzik by byl
+		 * o offset vedle - a tise, bez chyby. Kdyby cteni z PHP nekdy bylo
+		 * potreba, musi se soucasne zavest UTC Doctrine typ.
+		 */
+		#[Column]
 		private readonly DateTimeImmutable $createdAt,
 		#[Column]
 		private readonly string $identifier,
@@ -94,8 +103,7 @@ final class ExportLog
 	public function getId(): ?int { return $this->id; }
 	public function getUuid(): string { return $this->uuid; }
 	public function getSource(): ?string { return $this->source; }
-	/** vzdy v UTC - viz UtcDateTimeImmutableType */
-	public function getCreatedAt(): DateTimeImmutable { return $this->createdAt; }
+	// getCreatedAt() zamerne neni - viz komentar u vlastnosti
 	public function getIdentifier(): string { return $this->identifier; }
 	public function getSections(): array { return $this->sections; }
 	public function getRowCount(): int { return $this->rowCount; }

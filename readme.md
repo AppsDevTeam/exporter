@@ -179,9 +179,14 @@ exportu vrati chybu.
   je unikatni jen v jedne DB a tychze tabulek existuje vic (projekt na
   projekt), takze po svezeni do spolecneho uloziste by `id` kolidovala
   a nesla by dedupikovat ani atribuovat ke zdroji
-- `created_at` je VZDY v UTC (`utc_datetime_immutable`) - jinak by cas sedel
-  o offset vedle logu ostatnich systemu a pri prechodu na zimni cas by byla
-  jedna hodina v roce nejednoznacna (2:30 nastane dvakrat)
+- `created_at` je VZDY v UTC - jinak by cas sedel o offset vedle logu
+  ostatnich systemu a pri prechodu na zimni cas by byla jedna hodina v roce
+  nejednoznacna (2:30 nastane dvakrat). Sloupec je bezny `DATETIME`; UTC
+  zajistuje zapis (`format()` bere zonu z objektu), zadny vlastni Doctrine
+  typ neni potreba. `ExportLog` proto ZAMERNE nema `getCreatedAt()`: pri
+  hydrataci by Doctrine dosadila lokalni zonu a vratila okamzik posunuty
+  o offset. Zaznam je write-only, cte ho mover pres SQL - kdyby cteni z PHP
+  nekdy bylo potreba, musi se soucasne zavest UTC Doctrine typ
 - `source_ip` a `user_agent` jsou ploche, protoze na nich stoji detekcni
   pravidla ("stejny ucet, jina zeme")
 - mapovani na ECS: `created_at` -> `@timestamp`, `identifier` -> `event.action`,

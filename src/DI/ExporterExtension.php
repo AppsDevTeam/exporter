@@ -26,10 +26,6 @@ use Nette\Schema\Schema;
  *     downloadLink: ':Portal:Export:download'
  *     source: %project%          # oznaceni systemu v auditu
  *
- * Auditni cas je vzdy v UTC, coz vyzaduje registraci typu:
- *     dbal: connection: types:
- *         utc_datetime_immutable: ADT\Exporter\Model\Doctrine\UtcDateTimeImmutableType
- *
  * Queue callback (background-queue-nette):
  *     backgroundQueue: callbacks: processExport: [@exporter.exporter, processExport]
  *

@@ -10,6 +10,7 @@ use ADT\DoctrineComponents\QueryObject\QueryObjectInterface;
 use ADT\Exporter\Model\Entities\Export;
 use ADT\Exporter\Model\Entities\ExportLog;
 use DateTimeImmutable;
+use DateTimeZone;
 use Doctrine\ORM\QueryBuilder;
 use Nette\Application\LinkGenerator;
 use Nette\Mail\Mailer;
@@ -65,6 +66,10 @@ final class Exporter
 		}
 
 		$now = new DateTimeImmutable();
+		// audit jde v UTC, at ho lze korelovat s logy jinych systemu a at
+		// neni pri prechodu na zimni cas jedna hodina v roce nejednoznacna;
+		// provozni zaznam si nechava lokalni cas jako zbytek aplikace
+		$nowUtc = $now->setTimezone(new DateTimeZone('UTC'));
 
 		/** @var Export $export */
 		$export = new ($this->em->findEntityClassByInterface(Export::class));
@@ -80,13 +85,13 @@ final class Exporter
 		// audit + provozni zaznam + job v JEDNE transakci: zadny export bez
 		// auditu, zadny audit bez exportu, zadny job bez obojiho. Auditni
 		// zaznam je nemenny (konstruktor) a aktera nese denormalizovane.
-		$this->em->wrapInTransaction(function () use ($export, $request, $auditSections, $rowCount, $now, $actor) {
+		$this->em->wrapInTransaction(function () use ($export, $request, $auditSections, $rowCount, $nowUtc, $actor) {
 			$this->em->persist($export);
 			$this->em->flush();
 			$this->em->persist(new ExportLog(
 				uuid: self::uuid4(),
 				source: $this->source,
-				createdAt: $now,
+				createdAt: $nowUtc,
 				identifier: $request->identifier,
 				sections: $auditSections,
 				rowCount: $rowCount,
