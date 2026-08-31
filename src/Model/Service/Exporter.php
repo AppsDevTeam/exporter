@@ -8,7 +8,7 @@ use ADT\BackgroundQueue\BackgroundQueue;
 use ADT\DoctrineComponents\EntityManager;
 use ADT\DoctrineComponents\QueryObject\QueryObjectInterface;
 use ADT\Exporter\Model\Entities\Export;
-use ADT\Exporter\Model\Entities\ExportLog;
+
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\ORM\QueryBuilder;
@@ -17,10 +17,10 @@ use Nette\Mail\Mailer;
 
 /**
  * Jednotne hrdlo vsech exportu dat. V JEDNE transakci vznika:
- *   - ExportLog: AUDITNI zaznam (kdo/kdy/co presne - enumerace ID, DQL,
- *     filtry - a kam to odeslo) - append-only, bez jedine relace a bez
- *     vazby na soubor; odvazi ho mover do dlouhodobeho auditniho uloziste.
- *     Provozni beh na nej NIKDY nesmi sahat - po odvezeni tu neni.
+ *   - AUDITNI udalost pres ExportAuditLogger (kdo/kdy/co presne - enumerace
+ *     ID, DQL, filtry - a kam to odeslo). Knihovna nevlastni tabulku ani
+ *     entitu: zapisovac dodava aplikace nebo nadrazeny balicek, ktery
+ *     vsechny auditni udalosti sbira do jednoho streamu.
  *   - Export: PROVOZNI zaznam - ridi background regeneraci, soubor
  *     (pres ExportFileStorage - typicky aplikacni File ekosystem),
  *     doruceni a download
@@ -43,6 +43,7 @@ final class Exporter
 		private readonly ExportMailFactory $mailFactory,
 		private readonly ExportFileStorage $fileStorage,
 		private readonly ExportActorProvider $actorProvider,
+		private readonly ExportAuditLogger $auditLogger,
 		private readonly LinkGenerator $linkGenerator,
 		private readonly int $syncRowLimit,
 		private readonly string $downloadLink,
@@ -85,16 +86,18 @@ final class Exporter
 		$this->em->wrapInTransaction(function () use ($export, $request, $auditSections, $rowCount, $nowUtc, $actor) {
 			$this->em->persist($export);
 			$this->em->flush();
-			$this->em->persist(ExportLog::exported(
+			$this->auditLogger->log(
+				action: ExportAuditLogger::ACTION_EXPORT,
 				createdAt: $nowUtc,
-				identifier: $request->identifier,
-				sections: $auditSections,
-				rowCount: $rowCount,
-				recipientEmail: $request->email,
-				exportId: $export->getId(),
-				actor: $actor,
-			));
-			$this->em->flush();
+				correlationId: (string) $export->getId(),
+				actor: $actor?->toArray() ?? ExportActor::emptyArray(),
+				payload: [
+					'identifier' => $request->identifier,
+					'rowCount' => $rowCount,
+					'sections' => $auditSections,
+					'recipientEmail' => $request->email,
+				],
+			);
 			if ($export->isInBackground()) {
 				$this->backgroundQueue->publish(self::QUEUE_CALLBACK, ['exportId' => $export->getId()]);
 			}
@@ -121,15 +124,19 @@ final class Exporter
 	 */
 	public function logDownload(Export $export): void
 	{
-		$this->em->persist(ExportLog::downloaded(
+		$actor = $this->actorProvider->getActor();
+
+		$this->auditLogger->log(
+			action: ExportAuditLogger::ACTION_DOWNLOAD,
 			createdAt: new DateTimeImmutable('now', new DateTimeZone('UTC')),
-			identifier: $export->getIdentifier(),
-			rowCount: self::countRows($export->getSections()),
-			exportId: $export->getId(),
-			fileName: $export->getFileName(),
-			actor: $this->actorProvider->getActor(),
-		));
-		$this->em->flush();
+			correlationId: (string) $export->getId(),
+			actor: $actor?->toArray() ?? ExportActor::emptyArray(),
+			payload: [
+				'identifier' => $export->getIdentifier(),
+				'rowCount' => self::countRows($export->getSections()),
+				'fileName' => $export->getFileName(),
+			],
+		);
 	}
 
 	/** lokalni cesta souboru pro sync download (FileResponse) */

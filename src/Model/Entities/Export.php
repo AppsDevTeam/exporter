@@ -12,7 +12,7 @@ use DateTimeImmutable;
  * pres vlastni File ekosystem); po doruceni a uplynuti retence souboru muze
  * aplikace radek casem smazat.
  *
- * Auditni stopa je SAMOSTATNA entita ExportLog (append-only, bez vazby na
+ * Auditni stopa je samostatna udalost zapsana pres ExportAuditLogger (bez vazby na
  * soubor) - tu odvazi mover do dlouhodobeho auditniho uloziste.
  */
 interface Export
@@ -25,7 +25,7 @@ interface Export
 	/**
 	 * Sekce pro background regeneraci: [{name, entityClass|null, ids|null,
 	 * rows|null, columns}] - jen to, cim se soubor vyrobi. Dql a parametry
-	 * jsou auditni vec a zustavaji v ExportLog.
+	 * jsou auditni vec a jdou do auditni udalosti, ne sem.
 	 */
 	public function getSections(): array;
 	public function setSections(array $sections): static;

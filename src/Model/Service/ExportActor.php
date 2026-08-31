@@ -35,4 +35,27 @@ final readonly class ExportActor
 		public ?string $ip = null,
 		public ?string $userAgent = null,
 	) {}
+
+	/**
+	 * Zplosteni pro ExportAuditLogger, jehoz rozhrani je zamerne jen ze
+	 * skalaru a poli - implementace pak nemusi znat typy teto knihovny.
+	 *
+	 * @return array{id: string|null, label: string|null, data: array, ip: string|null, userAgent: string|null}
+	 */
+	public function toArray(): array
+	{
+		return [
+			'id' => $this->id !== null ? (string) $this->id : null,
+			'label' => $this->label,
+			'data' => $this->data,
+			'ip' => $this->ip,
+			'userAgent' => $this->userAgent,
+		];
+	}
+
+	/** @return array{id: null, label: null, data: array, ip: null, userAgent: null} */
+	public static function emptyArray(): array
+	{
+		return ['id' => null, 'label' => null, 'data' => [], 'ip' => null, 'userAgent' => null];
+	}
 }

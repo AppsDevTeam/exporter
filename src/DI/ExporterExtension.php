@@ -9,6 +9,7 @@ use ADT\Exporter\Model\Service\ExportFileGenerator;
 use ADT\Exporter\Model\Service\ExportMailFactory;
 use ADT\Exporter\Console\PurgeExportFilesCommand;
 use ADT\Exporter\Model\Service\ExportActorProvider;
+use ADT\Exporter\Model\Service\ExportAuditLogger;
 use ADT\Exporter\Model\Service\ExportFileStorage;
 use ADT\Exporter\Model\Service\Exporter;
 use ADT\Exporter\Model\Service\LocalExportFileStorage;
@@ -76,6 +77,18 @@ class ExporterExtension extends CompilerExtension
 		if (!$builder->findByType(ExportActorProvider::class)) {
 			$builder->addDefinition($this->prefix('actorProvider'))
 				->setType(NullExportActorProvider::class);
+		}
+
+		// Zapisovac auditu je POVINNY a nema nulovou implementaci: cely
+		// invariant exportu je "zadny export bez auditu", takze tichy no-op
+		// by ho zrusil a nikdo by si toho nevsiml. Radsi hlasite selhani
+		// pri kompilaci kontejneru nez neviditelne chybejici audit.
+		if (!$builder->findByType(ExportAuditLogger::class)) {
+			throw new \Nette\DI\InvalidConfigurationException(
+				'Chybi sluzba typu ' . ExportAuditLogger::class . '. Exportovana data nesmi'
+				. ' opustit system bez auditni stopy, takze zapisovac auditu je povinny -'
+				. ' zaregistruj implementaci (napr. z adt/fancyadmin).'
+			);
 		}
 
 		// uloziste souboru vlastni projekt (napr. adt/files) - default lokalni
