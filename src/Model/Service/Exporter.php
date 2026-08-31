@@ -83,7 +83,6 @@ final class Exporter
 				filters: $request->filters,
 				recipientEmail: $request->email,
 				exportId: $export->getId(),
-				metadata: $request->metadata,
 				createdById: $actor?->id !== null ? (string) $actor->id : null,
 				createdByLabel: $actor?->label,
 				createdBy: $actor?->data ?: null,

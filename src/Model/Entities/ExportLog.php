@@ -46,6 +46,7 @@ final class ExportLog
 		private readonly array $sections,
 		#[Column]
 		private readonly int $rowCount,
+		/** CO si volajici vyzadal - citelny protejsek strojove selekce v sections */
 		#[Column(type: 'json', nullable: true)]
 		private readonly ?array $filters,
 		/** KAM data odesla (prijemce); jina informace nez akter, ktery export spustil */
@@ -54,8 +55,6 @@ final class ExportLog
 		/** vazba na provozni zaznam (ten muze casem zaniknout, audit ne) */
 		#[Column(nullable: true)]
 		private readonly ?int $exportId,
-		#[Column(type: 'json', nullable: true)]
-		private readonly ?array $metadata,
 		/** spojovaci klic aktera ve zdrojovem systemu */
 		#[Column(nullable: true)]
 		private readonly ?string $createdById,
@@ -75,7 +74,6 @@ final class ExportLog
 	public function getFilters(): ?array { return $this->filters; }
 	public function getRecipientEmail(): ?string { return $this->recipientEmail; }
 	public function getExportId(): ?int { return $this->exportId; }
-	public function getMetadata(): ?array { return $this->metadata; }
 	public function getCreatedById(): ?string { return $this->createdById; }
 	public function getCreatedByLabel(): ?string { return $this->createdByLabel; }
 	public function getCreatedBy(): ?array { return $this->createdBy; }

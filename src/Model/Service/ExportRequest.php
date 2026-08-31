@@ -19,8 +19,9 @@ final readonly class ExportRequest
 	 * @param ExportSection[]|ExportSection $sections
 	 * @param ExportFileGenerator $generator vytvori soubor (sluzba, viz README)
 	 * @param string|null $email prijemce pri background zpracovani
-	 * @param array|null $filters stav filtru/formulare v okamziku exportu (audit)
-	 * @param array|null $metadata volitelny dalsi kontext (audit)
+	 * @param array|null $filters CO si volajici vyzadal - stav filtru/formulare
+	 *        v okamziku exportu; citelny protejsek strojove selekce v sekcich
+	 *        (a u agregatovych sekci bez DQL jediny zaznam o zadani)
 	 * @param bool $forceBackground vynuti background zpracovani + e-mail
 	 *        i pod syncRowLimit (automaticke reporty z cronu, kde neni
 	 *        nikdo, kdo by si soubor stahl synchronne)
@@ -31,7 +32,6 @@ final readonly class ExportRequest
 		public ExportFileGenerator $generator,
 		public ?string $email = null,
 		public ?array $filters = null,
-		public ?array $metadata = null,
 		public bool $forceBackground = false,
 	) {
 		$this->sections = is_array($sections) ? array_values($sections) : [$sections];
