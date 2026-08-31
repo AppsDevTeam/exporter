@@ -49,15 +49,14 @@ final class ExportDownloadLog
 		#[Column]
 		private readonly DateTimeImmutable $createdAt,
 		/**
-		 * uuid auditni udalosti exportu, ze ktereho soubor pochazi.
-		 * Vazba pres uuid, ne pres id: autoinkrement je unikatni jen v jedne
-		 * DB, takze po svezeni logu do spolecneho uloziste by join nesedel.
+		 * uuid auditni udalosti exportu, ze ktereho soubor pochazi - JEDINA
+		 * vazba na zadani. Pres uuid, ne pres lokalni id: autoinkrement je
+		 * unikatni jen v jedne DB, takze po svezeni logu do spolecneho
+		 * uloziste by join nesedel. Na provozni radek se dostane pres
+		 * export.audit_uuid, dokud existuje.
 		 */
 		#[Column(length: 36, nullable: true)]
 		private readonly ?string $exportUuid,
-		/** lokalni vazba na provozni zaznam (pohodli pri dotazech nad jednou DB) */
-		#[Column(nullable: true)]
-		private readonly ?int $exportId,
 		/** opsano z exportu, aby byl zaznam citelny samostatne */
 		#[Column]
 		private readonly string $identifier,
@@ -76,7 +75,6 @@ final class ExportDownloadLog
 	public function getUuid(): string { return $this->uuid; }
 	public function getSource(): ?string { return $this->source; }
 	public function getExportUuid(): ?string { return $this->exportUuid; }
-	public function getExportId(): ?int { return $this->exportId; }
 	public function getIdentifier(): string { return $this->identifier; }
 	public function getRowCount(): int { return $this->rowCount; }
 	public function getFileName(): ?string { return $this->fileName; }

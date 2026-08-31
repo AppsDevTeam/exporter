@@ -83,9 +83,6 @@ final class ExportLog
 		/** KAM data odesla (prijemce); jina informace nez akter, ktery export spustil */
 		#[Column(nullable: true)]
 		private readonly ?string $recipientEmail,
-		/** vazba na provozni zaznam (ten muze casem zaniknout, audit ne) */
-		#[Column(nullable: true)]
-		private readonly ?int $exportId,
 		?ExportActor $actor = null,
 	) {
 		$this->setActor($actor);
@@ -99,5 +96,4 @@ final class ExportLog
 	public function getSections(): array { return $this->sections; }
 	public function getRowCount(): int { return $this->rowCount; }
 	public function getRecipientEmail(): ?string { return $this->recipientEmail; }
-	public function getExportId(): ?int { return $this->exportId; }
 }

@@ -102,7 +102,6 @@ final class Exporter
 				sections: $auditSections,
 				rowCount: $rowCount,
 				recipientEmail: $request->email,
-				exportId: $export->getId(),
 				actor: $actor,
 			));
 			$this->em->flush();
@@ -137,7 +136,6 @@ final class Exporter
 			source: $this->source,
 			createdAt: new DateTimeImmutable('now', new DateTimeZone('UTC')),
 			exportUuid: $export->getAuditUuid(),
-			exportId: $export->getId(),
 			identifier: $export->getIdentifier(),
 			rowCount: self::countRows($export->getSections()),
 			fileName: $export->getFileName(),
