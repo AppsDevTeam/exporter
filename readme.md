@@ -184,10 +184,19 @@ exportu vrati chybu.
 
 ### Pripravenost pro SIEM
 
-- `uuid` + `source` = identita udalosti nezavisla na databazi. Autoinkrement
-  je unikatni jen v jedne DB a tychze tabulek existuje vic (projekt na
-  projekt), takze po svezeni do spolecneho uloziste by `id` kolidovala
-  a nesla by dedupikovat ani atribuovat ke zdroji
+- **identita udalosti je dvojice (zdroj, `id`)**. Zdroj NENI sloupec: mover
+  vi, ze ktere databaze cte, a stampuje ho pri odvozu; dedupikacni klic si
+  odvodi jako `zdroj:tabulka:id`. Diky tomu je identita v kazde tabulce
+  rodiny logu zdarma - `id` uz tam vsude je. Vlastni `uuid` by muselo
+  pribyt do vsech (tedy i do `doctrine-authenticator` pro `auth_log`
+  a `doctrine-loggable` pro `change_log`), a jednotne jednodussi schema je
+  cennejsi nez robustnejsi schema nasazene jen v jednom logu.
+  Zbytkove riziko: po obnove databaze ze zalohy se autoinkrement preposadi
+  a `id` se muze vydat znovu - proti tomu je `uuid` imunni, dvojice ne
+- **korelace mezi udalostmi** jde pres `export_id` (id provozniho zaznamu).
+  Tutez hodnotu nese `export_log` i `export_download_log`, takze se v ramci
+  jednoho zdroje spoji zadani exportu s jeho stazenimi. Zamerne ne id
+  auditniho radku: ten uz mohl byt odvezen moverem
 - `created_at` je VZDY v UTC - jinak by cas sedel o offset vedle logu
   ostatnich systemu a pri prechodu na zimni cas by byla jedna hodina v roce
   nejednoznacna (2:30 nastane dvakrat). Sloupec je bezny `DATETIME`; UTC
@@ -203,6 +212,6 @@ exportu vrati chybu.
   `email.to.address`, `source_ip` -> `source.ip`
 - POZOR na velikost: `sections` nese vycet ID, takze u velkeho exportu jde
   o stovky KB az jednotky MB. Do SIEM patri souhrn (identifier, akter,
-  row_count, fields, prijemce) a odkaz pres `uuid`; enumerace ID zustava
+  row_count, fields, prijemce) a odkaz pres `id`; enumerace ID zustava
   v archivnim ulozisti - jinak se udalost usekne na limitu ingesce
   (Splunk ma default TRUNCATE 10 000 B)

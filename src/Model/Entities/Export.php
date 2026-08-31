@@ -23,14 +23,6 @@ interface Export
 	public function setIdentifier(string $identifier): static;
 
 	/**
-	 * uuid auditni udalosti, pri ktere tento export vznikl. Drzi se tu, aby
-	 * slo stazeni souboru navazat na zadani exportu i pote, co auditni
-	 * tabulku odveze mover - vazba pres uuid, ne pres lokalni id.
-	 */
-	public function getAuditUuid(): ?string;
-	public function setAuditUuid(?string $auditUuid): static;
-
-	/**
 	 * Sekce pro background regeneraci: [{name, entityClass|null, ids|null,
 	 * rows|null, columns}] - jen to, cim se soubor vyrobi. Dql a parametry
 	 * jsou auditni vec a zustavaji v ExportLog.

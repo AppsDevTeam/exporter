@@ -26,6 +26,15 @@ use Doctrine\ORM\Mapping\Table;
  * citelne oznaceni); CIM konkretne projekt aktera identifikuje se lisi,
  * a proto je promenna cast volny JSON createdBy - viz ExportActor.
  *
+ * IDENTITA UDALOSTI je dvojice (zdroj, id). Zdroj neni sloupec: mover vi,
+ * ze ktere databaze cte, a stampuje ho pri odvozu - stejny vzor plati pro
+ * celou rodinu logu (auth_log, change_log, transaction_log), takze je
+ * v kazde tabulce zdarma. Vlastni uuid by muselo pribyt do vsech z nich,
+ * tedy i do doctrine-authenticatoru a doctrine-loggable; jednotne
+ * jednodussi schema je cennejsi nez robustnejsi schema nasazene jen tady.
+ * Zbytkove riziko: po obnove databaze ze zalohy se autoinkrement preposadi
+ * a id se muze vydat znovu.
+ *
  * Aplikace entitu jen namapuje (nettrine mapping na vendor/adt/exporter/src/
  * Model/Entities) - zadna vlastni trida, zadny trait.
  */
@@ -41,17 +50,6 @@ final class ExportLog
 	private ?int $id = null;
 
 	public function __construct(
-		/**
-		 * Identita udalosti nezavisla na databazi. Autoinkrementovane id je
-		 * unikatni jen v ramci jedne DB, a tychze tabulek je vic (kazdy
-		 * projekt ma svou) - po svezeni do spolecneho uloziste by id
-		 * kolidovala a nesla by dedupikovat.
-		 */
-		#[Column(length: 36, unique: true)]
-		private readonly string $uuid,
-		/** ze KTEREHO systemu zaznam pochazi - atribuce zdroje po svezeni */
-		#[Column(nullable: true)]
-		private readonly ?string $source,
 		/**
 		 * VZDY V UTC - Exporter sem UTC cas zapisuje a nic ho pres Doctrinu
 		 * necte (auditni zaznam je write-only, cte ho mover pres SQL).
@@ -84,17 +82,24 @@ final class ExportLog
 		/** KAM data odesla (prijemce); jina informace nez akter, ktery export spustil */
 		#[Column(nullable: true)]
 		private readonly ?string $recipientEmail,
+		/**
+		 * Korelacni klic: id provozniho zaznamu, ke kteremu udalost patri.
+		 * Podle nej se v auditnim ulozisti spojuje export se stazenimi -
+		 * viz ExportDownloadLog::$exportId. Provozni radek muze casem
+		 * zaniknout, jako korelacni token hodnota plati dal.
+		 */
+		#[Column(type: Types::BIGINT, options: ['unsigned' => true], nullable: true)]
+		private readonly ?int $exportId,
 		?ExportActor $actor = null,
 	) {
 		$this->setActor($actor);
 	}
 
 	public function getId(): ?int { return $this->id; }
-	public function getUuid(): string { return $this->uuid; }
-	public function getSource(): ?string { return $this->source; }
 	// getCreatedAt() zamerne neni - viz komentar u vlastnosti
 	public function getIdentifier(): string { return $this->identifier; }
 	public function getSections(): array { return $this->sections; }
 	public function getRowCount(): int { return $this->rowCount; }
 	public function getRecipientEmail(): ?string { return $this->recipientEmail; }
+	public function getExportId(): ?int { return $this->exportId; }
 }

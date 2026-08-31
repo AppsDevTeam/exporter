@@ -47,8 +47,6 @@ final class Exporter
 		private readonly LinkGenerator $linkGenerator,
 		private readonly int $syncRowLimit,
 		private readonly string $downloadLink,
-		/** oznaceni systemu v auditu - viz ExportLog::$source */
-		private readonly ?string $source = null,
 	) {}
 
 	public function export(ExportRequest $request): Export
@@ -71,15 +69,9 @@ final class Exporter
 		// provozni zaznam si nechava lokalni cas jako zbytek aplikace
 		$nowUtc = $now->setTimezone(new DateTimeZone('UTC'));
 
-		// uuid auditni udalosti vznika predem, aby si ho provozni zaznam mohl
-		// odlozit a stazeni souboru se na nej pozdeji navazalo i po odvezeni
-		// auditni tabulky moverem
-		$auditUuid = self::uuid4();
-
 		/** @var Export $export */
 		$export = new ($this->em->findEntityClassByInterface(Export::class));
 		$export->setCreatedAt($now)
-			->setAuditUuid($auditUuid)
 			->setIdentifier($request->identifier)
 			->setSections($sections)
 			->setGenerator(get_class($request->generator))
@@ -91,17 +83,16 @@ final class Exporter
 		// audit + provozni zaznam + job v JEDNE transakci: zadny export bez
 		// auditu, zadny audit bez exportu, zadny job bez obojiho. Auditni
 		// zaznam je nemenny (konstruktor) a aktera nese denormalizovane.
-		$this->em->wrapInTransaction(function () use ($export, $request, $auditSections, $rowCount, $nowUtc, $actor, $auditUuid) {
+		$this->em->wrapInTransaction(function () use ($export, $request, $auditSections, $rowCount, $nowUtc, $actor) {
 			$this->em->persist($export);
 			$this->em->flush();
 			$this->em->persist(new ExportLog(
-				uuid: $auditUuid,
-				source: $this->source,
 				createdAt: $nowUtc,
 				identifier: $request->identifier,
 				sections: $auditSections,
 				rowCount: $rowCount,
 				recipientEmail: $request->email,
+				exportId: $export->getId(),
 				actor: $actor,
 			));
 			$this->em->flush();
@@ -132,10 +123,8 @@ final class Exporter
 	public function logDownload(Export $export): void
 	{
 		$this->em->persist(new ExportDownloadLog(
-			uuid: self::uuid4(),
-			source: $this->source,
 			createdAt: new DateTimeImmutable('now', new DateTimeZone('UTC')),
-			exportUuid: $export->getAuditUuid(),
+			exportId: $export->getId(),
 			identifier: $export->getIdentifier(),
 			rowCount: self::countRows($export->getSections()),
 			fileName: $export->getFileName(),
@@ -204,19 +193,6 @@ final class Exporter
 		}
 
 		return $count;
-	}
-
-	/**
-	 * UUID v4 bez zavislosti na dalsi knihovne - identita auditni udalosti
-	 * musi vzniknout i v projektu, ktery zadny uuid balicek nema.
-	 */
-	private static function uuid4(): string
-	{
-		$b = random_bytes(16);
-		$b[6] = chr((ord($b[6]) & 0x0f) | 0x40);   // verze 4
-		$b[8] = chr((ord($b[8]) & 0x3f) | 0x80);   // varianta RFC 4122
-
-		return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($b), 4));
 	}
 
 	/** @internal registrace generatoru z DI (viz ExporterExtension) */
