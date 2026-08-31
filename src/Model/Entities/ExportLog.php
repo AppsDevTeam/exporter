@@ -6,6 +6,7 @@ namespace ADT\Exporter\Model\Entities;
 
 use ADT\Exporter\Model\Service\ExportActor;
 use DateTimeImmutable;
+use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping\Column;
 use Doctrine\ORM\Mapping\Entity;
 use Doctrine\ORM\Mapping\GeneratedValue;
@@ -35,7 +36,7 @@ final class ExportLog
 	use ActorSnapshotTrait;
 
 	#[Id]
-	#[Column]
+	#[Column(type: Types::BIGINT, options: ['unsigned' => true])]
 	#[GeneratedValue]
 	private ?int $id = null;
 
@@ -78,7 +79,7 @@ final class ExportLog
 		 */
 		#[Column(type: 'json')]
 		private readonly array $sections,
-		#[Column]
+		#[Column(type: Types::BIGINT, options: ['unsigned' => true])]
 		private readonly int $rowCount,
 		/** KAM data odesla (prijemce); jina informace nez akter, ktery export spustil */
 		#[Column(nullable: true)]

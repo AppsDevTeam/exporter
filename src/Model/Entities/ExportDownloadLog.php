@@ -6,6 +6,7 @@ namespace ADT\Exporter\Model\Entities;
 
 use ADT\Exporter\Model\Service\ExportActor;
 use DateTimeImmutable;
+use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping\Column;
 use Doctrine\ORM\Mapping\Entity;
 use Doctrine\ORM\Mapping\GeneratedValue;
@@ -38,7 +39,7 @@ final class ExportDownloadLog
 	use ActorSnapshotTrait;
 
 	#[Id]
-	#[Column]
+	#[Column(type: Types::BIGINT, options: ['unsigned' => true])]
 	#[GeneratedValue]
 	private ?int $id = null;
 
@@ -65,7 +66,7 @@ final class ExportDownloadLog
 		#[Column]
 		private readonly string $identifier,
 		/** kolik radku ten soubor obsahoval - objem dat, ktera prave odesla */
-		#[Column]
+		#[Column(type: Types::BIGINT, options: ['unsigned' => true])]
 		private readonly int $rowCount,
 		/** ktery soubor byl vydan */
 		#[Column(nullable: true)]
