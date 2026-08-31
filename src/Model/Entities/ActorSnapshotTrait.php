@@ -16,8 +16,8 @@ use Doctrine\ORM\Mapping\Column;
  * kterem stoji detekcni pravidla. CIM konkretne projekt aktera identifikuje
  * se lisi, proto je promenna cast volny JSON createdBy - viz ExportActor.
  *
- * Sdilene mezi ExportLog (kdo export zadal) a ExportDownloadLog (kdo si
- * soubor stahl) - jsou to ruzne udalosti a klidne ruzni lide.
+ * Uplatni se na kazdou akci v ExportLog: kdo export zadal a kdo si soubor
+ * stahl jsou ruzne udalosti a klidne ruzni lide.
  */
 trait ActorSnapshotTrait
 {

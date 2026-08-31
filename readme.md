@@ -14,10 +14,12 @@ Provozni a auditni data jsou ODDELENA (stejny vzor jako session vs. auth log):
 - **export** (provozni): ridi background regeneraci, soubor, doruceni,
   download; soubor spravuje `ExportFileStorage` (aplikace typicky vlastni
   File ekosystem); po doruceni a retenci souboru muze zaznam casem zaniknout
-- **export_log** (audit): append-only "kdo/kdy/co presne" BEZ vazby na
-  soubor - odvazi ho mover do dlouhodobeho auditniho uloziste
-- **export_download_log** (audit): kazdy VYDEJ souboru zvlast - data
-  opousteji system az stazenim, opakovane a klidne nekym jinym
+- **export_log** (audit): append-only stream udalosti BEZ vazby na soubor -
+  odvazi ho mover do dlouhodobeho auditniho uloziste. Sloupec `action`
+  rozlisuje typ udalosti:
+  - `export` - zadani exportu, "kdo/kdy/co presne"
+  - `download` - kazdy VYDEJ souboru zvlast; data opousteji system az
+    stazenim, opakovane a klidne nekym jinym nez zadavatelem
 
 Oba zaznamy i pripadny background job vznikaji v JEDNE transakci (outbox
 garance adt/background-queue).
@@ -194,9 +196,11 @@ exportu vrati chybu.
   Zbytkove riziko: po obnove databaze ze zalohy se autoinkrement preposadi
   a `id` se muze vydat znovu - proti tomu je `uuid` imunni, dvojice ne
 - **korelace mezi udalostmi** jde pres `export_id` (id provozniho zaznamu).
-  Tutez hodnotu nese `export_log` i `export_download_log`, takze se v ramci
-  jednoho zdroje spoji zadani exportu s jeho stazenimi. Zamerne ne id
-  auditniho radku: ten uz mohl byt odvezen moverem
+  Tutez hodnotu nesou vsechny akce, takze `WHERE export_id = ? ORDER BY id`
+  vrati zadani exportu i vsechna jeho stazeni. Zamerne ne id auditniho
+  radku: ten uz mohl byt odvezen moverem
+- `action` mapuje na ECS `event.action`; dalsi typ udalosti (napr. smazani
+  souboru retenci) pribude jako nova hodnota enumu, bez migrace
 - `created_at` je VZDY v UTC - jinak by cas sedel o offset vedle logu
   ostatnich systemu a pri prechodu na zimni cas by byla jedna hodina v roce
   nejednoznacna (2:30 nastane dvakrat). Sloupec je bezny `DATETIME`; UTC

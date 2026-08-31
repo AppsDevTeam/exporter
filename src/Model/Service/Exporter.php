@@ -8,7 +8,6 @@ use ADT\BackgroundQueue\BackgroundQueue;
 use ADT\DoctrineComponents\EntityManager;
 use ADT\DoctrineComponents\QueryObject\QueryObjectInterface;
 use ADT\Exporter\Model\Entities\Export;
-use ADT\Exporter\Model\Entities\ExportDownloadLog;
 use ADT\Exporter\Model\Entities\ExportLog;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -86,7 +85,7 @@ final class Exporter
 		$this->em->wrapInTransaction(function () use ($export, $request, $auditSections, $rowCount, $nowUtc, $actor) {
 			$this->em->persist($export);
 			$this->em->flush();
-			$this->em->persist(new ExportLog(
+			$this->em->persist(ExportLog::exported(
 				createdAt: $nowUtc,
 				identifier: $request->identifier,
 				sections: $auditSections,
@@ -122,11 +121,11 @@ final class Exporter
 	 */
 	public function logDownload(Export $export): void
 	{
-		$this->em->persist(new ExportDownloadLog(
+		$this->em->persist(ExportLog::downloaded(
 			createdAt: new DateTimeImmutable('now', new DateTimeZone('UTC')),
-			exportId: $export->getId(),
 			identifier: $export->getIdentifier(),
 			rowCount: self::countRows($export->getSections()),
+			exportId: $export->getId(),
 			fileName: $export->getFileName(),
 			actor: $this->actorProvider->getActor(),
 		));
