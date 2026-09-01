@@ -37,6 +37,12 @@ final readonly class ExportSection
 	/** Pole poli = raw radky; pole skalaru = seznam ID */
 	public function isRawRows(): bool
 	{
-		return is_array($this->source) && $this->source !== [] && is_array(reset($this->source));
+		if (!is_array($this->source) || $this->source === []) {
+			return false;
+		}
+
+		// Zamerne bez reset() - to bere pole referenci a na readonly property
+		// spadne na "Cannot indirectly modify readonly property".
+		return is_array($this->source[array_key_first($this->source)]);
 	}
 }
