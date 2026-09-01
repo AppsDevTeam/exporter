@@ -37,6 +37,12 @@ final class Exporter
 	public const string QUEUE_CALLBACK = 'processExport';
 
 	/**
+	 * Klic parametru jobu. Musi se doslova shodovat s nazvem parametru processExport(),
+	 * protoze fronta ho rozbaluje jako pojmenovany argument - hlida to test queueCallback.
+	 */
+	public const string PARAM_EXPORT_ID = 'exportId';
+
+	/**
 	 * Export byl zadan - data jsou vybrana a soubor vznikl. Vola se ve STEJNE
 	 * transakci jako provozni zaznam, takze co v callbacku zapises, vznikne
 	 * atomicky s exportem (a naopak: vyjimka export zrusi).
@@ -103,7 +109,7 @@ final class Exporter
 			$this->em->flush();
 			Arrays::invoke($this->onExport, $export, $request, $eventSections, $rowCount);
 			if ($export->isInBackground()) {
-				$this->backgroundQueue->publish(self::QUEUE_CALLBACK, ['exportId' => $export->getId()]);
+				$this->backgroundQueue->publish(self::QUEUE_CALLBACK, [self::PARAM_EXPORT_ID => $export->getId()]);
 			}
 		});
 
@@ -136,12 +142,18 @@ final class Exporter
 		return $this->fileStorage->getLocalPath($export);
 	}
 
-	/** Queue callback - regenerace ze sekci + e-mail s odkazem */
-	public function processExport(array $parameters): void
+	/**
+	 * Queue callback - regenerace ze sekci + e-mail s odkazem.
+	 *
+	 * Parametr se jmenuje stejne jako klic, pod kterym se job publikuje: fronta na PHP 8
+	 * rozbaluje parametry pojmenovane (`$callback(...$job->getParameters())`), takze cokoli
+	 * jineho skonci na "Unknown named parameter".
+	 */
+	public function processExport(int $exportId): void
 	{
 		/** @var Export $export */
 		$export = $this->em->getRepository($this->em->findEntityClassByInterface(Export::class))
-			->find($parameters['exportId']);
+			->find($exportId);
 		if (!$export || $export->getProcessedAt() !== null) {
 			return; // idempotence pri retry
 		}
