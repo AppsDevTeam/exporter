@@ -37,8 +37,16 @@ final readonly class ExportSection
 	/** Pole poli = raw radky; pole skalaru = seznam ID */
 	public function isRawRows(): bool
 	{
-		if (!is_array($this->source) || $this->source === []) {
+		if (!is_array($this->source)) {
 			return false;
+		}
+
+		// Prazdne pole nema podle ceho poznat, co to melo byt - seznam ID ale vzdy prichazi
+		// s entityClass, takze bez nej jde o (prazdne) raw radky. Bez tohohle rozliseni by
+		// agregovana sekce bez dat, treba souhrn za obdobi bez prodeju, spadla na tom, ze
+		// "pro pole ID je nutne predat entityClass".
+		if ($this->source === []) {
+			return $this->entityClass === null;
 		}
 
 		// Zamerne bez reset() - to bere pole referenci a na readonly property

@@ -44,7 +44,7 @@ test('pole skalaru je seznam ID, ne raw radky', function () {
 });
 
 
-test('prazdne pole nejsou raw radky', function () {
+test('prazdne pole s entityClass je prazdny seznam ID', function () {
 	Assert::false(new ExportSection('items', [], [], 'App\Entity\OrderItem')->isRawRows());
 });
 
@@ -55,4 +55,14 @@ test('QueryBuilder neni raw radky', function () {
 	$qb = new ReflectionClass(QueryBuilder::class)->newInstanceWithoutConstructor();
 
 	Assert::false(new ExportSection('items', $qb, [])->isRawRows());
+});
+
+
+/**
+ * Agregovana sekce bez dat je bezny stav - souhrn za obdobi, ve kterem se nic neprodalo.
+ * Driv se prazdne pole vzdycky povazovalo za seznam ID, takze takova sekce spadla na
+ * "pro pole ID je nutne predat entityClass" misto aby dala prazdny sheet.
+ */
+test('prazdne pole bez entityClass jsou prazdne raw radky', function () {
+	Assert::true(new ExportSection('summary', [], [])->isRawRows());
 });

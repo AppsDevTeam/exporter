@@ -76,6 +76,7 @@ final class Exporter
 		private readonly LinkGenerator $linkGenerator,
 		private readonly int $syncRowLimit,
 		private readonly string $downloadLink,
+		private readonly ?string $memoryLimit = null,
 	) {}
 
 	public function export(ExportRequest $request): Export
@@ -115,6 +116,7 @@ final class Exporter
 
 		if (!$export->isInBackground()) {
 			$this->generateFile($export, $request->generator);
+			$this->markProcessed($export);
 		}
 
 		return $export;
@@ -168,6 +170,13 @@ final class Exporter
 				$this->linkGenerator->link($this->downloadLink, ['id' => $export->getId()]),
 			));
 		}
+
+		// AZ TED je export hotovy. Kdyby se `processedAt` zapsalo uz pri generovani souboru,
+		// selhani odeslani by se pri retry umlcelo tou strazi nahore: soubor by existoval,
+		// job by se tvaril jako dokonceny a odkaz by uzivateli nikdy nedosel. Cena za to je,
+		// ze se soubor pri nedorucenem e-mailu vyrobi znovu - attach() prepisuje, takze se
+		// nic nehromadi.
+		$this->markProcessed($export);
 	}
 
 	/**
@@ -184,12 +193,17 @@ final class Exporter
 			->where('e.processedAt < :t')->andWhere('e.filesPurgedAt IS NULL')
 			->setParameter('t', $threshold)
 			->getQuery()->getResult();
+
+		// Flush po KAZDEM zaznamu, ne az na konci: soubor mizi hned, takze pad uprostred
+		// smycky by jinak nechal vsechny dosud smazane exporty tvrdit, ze soubor maji,
+		// a stazeni by u nich skoncilo zahadnou chybou. Takhle je rozjety nejvys jeden.
 		foreach ($exports as $export) {
 			$this->fileStorage->purge($export);
 			$export->setFilesPurgedAt(new DateTimeImmutable());
+			$this->em->flush();
 			$purged++;
 		}
-		$this->em->flush();
+
 		return $purged;
 	}
 
@@ -211,9 +225,23 @@ final class Exporter
 		$this->generators[get_class($generator)] = $generator;
 	}
 
+	/**
+	 * Export je hotovy az vcetne doruceni - viz processExport().
+	 */
+	private function markProcessed(Export $export): void
+	{
+		$export->setProcessedAt(new DateTimeImmutable());
+		$this->em->flush();
+	}
+
 	private function generateFile(Export $export, ExportFileGenerator $generator): void
 	{
-		ini_set('memory_limit', '10G');
+		// Limit rozhoduje projekt, ne knihovna: generovani bezi i synchronne v HTTP requestu
+		// a zvednuti na nekolik GB tam znamena, ze jeden velky export sundá stroj misto toho,
+		// aby cisté selhal. Zustava v platnosti do konce procesu, u workeru tedy i pro dalsi joby.
+		if ($this->memoryLimit !== null) {
+			ini_set('memory_limit', $this->memoryLimit);
+		}
 
 		$sections = [];
 		foreach ($export->getSections() as $section) {
@@ -243,7 +271,6 @@ final class Exporter
 
 		$export->setFileName(basename($tmpPath));
 		$this->fileStorage->attach($export, $tmpPath);
-		$export->setProcessedAt(new DateTimeImmutable());
 		$this->em->flush();
 	}
 

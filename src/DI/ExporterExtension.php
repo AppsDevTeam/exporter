@@ -39,6 +39,9 @@ class ExporterExtension extends CompilerExtension
 			// (napr. nad aplikacnim File ekosystemem) neni potreba
 			'fileDir' => Expect::string('/tmp/exports'),
 			'downloadLink' => Expect::string()->required(),
+			// null = nechat systemovy limit; generovani bezi i v HTTP requestu, takze
+			// zvednuti na nekolik GB je rozhodnuti projektu, ne knihovny
+			'memoryLimit' => Expect::string()->nullable(),
 			// callbacky udalosti, napr. onExport: [[@nejakaSluzba, exportProbehl]]
 			// - viz Exporter::$onExport a $onDownload
 			'onExport' => Expect::listOf('mixed'),
@@ -55,6 +58,7 @@ class ExporterExtension extends CompilerExtension
 			->setFactory(Exporter::class, [
 				'syncRowLimit' => $config->syncRowLimit,
 				'downloadLink' => $config->downloadLink,
+				'memoryLimit' => $config->memoryLimit,
 			]);
 
 		$exporter = $builder->getDefinition($this->prefix('exporter'));
