@@ -19,9 +19,15 @@
 		"adt/doctrine-components": "^3.0",
 		"symfony/console": "^6.0|^7.0|^8.0"
 	},
+	"require-dev": {
+		"nette/tester": "^2.5"
+	},
 	"autoload": {
 		"psr-4": {
 			"ADT\\Exporter\\": "src"
 		}
+	},
+	"scripts": {
+		"test": "tester -C tests"
 	}
 }
