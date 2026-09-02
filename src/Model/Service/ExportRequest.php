@@ -22,7 +22,9 @@ final readonly class ExportRequest
 	/**
 	 * @param string $identifier lidsky citelny typ exportovanych dat
 	 * @param ExportSection[]|ExportSection $sections
-	 * @param ExportFileGenerator $generator vytvori soubor (sluzba, viz README)
+	 * @param ExportFileGenerator|BatchedExportFileGenerator $generator vytvori soubor
+	 *        (sluzba, viz README); davkova varianta je pro exporty, ktere se nevejdou
+	 *        do pameti
 	 * @param string|null $email prijemce pri background zpracovani
 	 * @param bool $forceBackground vynuti background zpracovani + e-mail
 	 *        i pod syncRowLimit (automaticke reporty z cronu, kde neni
@@ -31,7 +33,7 @@ final readonly class ExportRequest
 	public function __construct(
 		public string $identifier,
 		array|ExportSection $sections,
-		public ExportFileGenerator $generator,
+		public ExportFileGenerator|BatchedExportFileGenerator $generator,
 		public ?string $email = null,
 		public bool $forceBackground = false,
 	) {
