@@ -76,8 +76,40 @@ if (!$export->isInBackground()) {
        callbacks:
            processExport: [@exporter.exporter, processExport]
    ```
-3. Generatory souboru registrovat jako sluzby (implementuji `ExportFileGenerator`,
-   extension je poskytne background handleru automaticky).
+3. Generatory souboru registrovat jako sluzby (implementuji `ExportFileGenerator`
+   nebo `BatchedExportFileGenerator`, extension je poskytne background handleru
+   automaticky).
+
+## Velke exporty: BatchedExportFileGenerator
+
+`ExportFileGenerator` dostane vsechny entity naraz, takze spotreba pameti roste
+s poctem radku - u velkych exportu proto padne na memory limitu. Pro takove
+pripady existuje `BatchedExportFileGenerator`:
+
+```php
+final readonly class MyGenerator implements BatchedExportFileGenerator
+{
+    public function generateBatched(array $sections, string $identifier): string
+    {
+        foreach ($sections['items']['batches'] as $batch) {
+            foreach ($batch as $entity) {
+                // ...zapsat radek do souboru...
+            }
+        }
+        return $path;
+    }
+}
+```
+
+Knihovna si mezi davkami cisti EntityManager, aby uvolnila nactene entity i jejich
+navazany graf. **Entity proto plati jen v ramci prave iterovane davky** - generator
+si je nesmi odkladat a musi si z nich rovnou vytahat skalarni data.
+
+Cistit se smi jen v background workeru, takze u synchronniho exportu (pod
+`syncRowLimit`) davky prichazeji, ale EntityManager zustava nedotcen - jinak by se
+odpojily entity, se kterymi dal pracuje presenter.
+
+Velikost davky ridi `batchSize` (default 500).
 
 ## Akter auditu
 
