@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ADT\Exporter\DI;
 
+use ADT\Exporter\Model\Service\BatchedExportFileGenerator;
 use ADT\Exporter\Model\Service\DefaultExportMailFactory;
 use ADT\Exporter\Model\Service\ExportFileGenerator;
 use ADT\Exporter\Model\Service\ExportMailFactory;
@@ -42,6 +43,9 @@ class ExporterExtension extends CompilerExtension
 			// null = nechat systemovy limit; generovani bezi i v HTTP requestu, takze
 			// zvednuti na nekolik GB je rozhodnuti projektu, ne knihovny
 			'memoryLimit' => Expect::string()->nullable(),
+			// velikost davky pri nacitani entit; u BatchedExportFileGenerator se
+			// po kazde davce uvolni nactene entity, takze mensi davka = nizsi peak
+			'batchSize' => Expect::int(500),
 			// callbacky udalosti, napr. onExport: [[@nejakaSluzba, exportProbehl]]
 			// - viz Exporter::$onExport a $onDownload
 			'onExport' => Expect::listOf('mixed'),
@@ -59,6 +63,7 @@ class ExporterExtension extends CompilerExtension
 				'syncRowLimit' => $config->syncRowLimit,
 				'downloadLink' => $config->downloadLink,
 				'memoryLimit' => $config->memoryLimit,
+				'batchSize' => $config->batchSize,
 			]);
 
 		$exporter = $builder->getDefinition($this->prefix('exporter'));
@@ -91,8 +96,12 @@ class ExporterExtension extends CompilerExtension
 				->setFactory(LocalExportFileStorage::class, [$this->getConfig()->fileDir]);
 		}
 
+		// Generator muze implementovat kterykoli z obou interfacu (nebo oba, proto
+		// klicovani podle nazvu definice - jinak by se registroval dvakrat).
 		$exporter = $builder->getDefinition($this->prefix('exporter'));
-		foreach ($builder->findByType(ExportFileGenerator::class) as $def) {
+		$generators = $builder->findByType(ExportFileGenerator::class)
+			+ $builder->findByType(BatchedExportFileGenerator::class);
+		foreach ($generators as $def) {
 			$exporter->addSetup('addGenerator', [$def]);
 		}
 	}

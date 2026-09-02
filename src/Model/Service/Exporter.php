@@ -13,6 +13,7 @@ use ADT\Exporter\Model\Entities\Export;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\ORM\QueryBuilder;
+use Generator;
 use Nette\Application\LinkGenerator;
 use Nette\Mail\Mailer;
 use Nette\Utils\Arrays;
@@ -64,7 +65,7 @@ final class Exporter
 	 */
 	public array $onDownload = [];
 
-	/** @var array<class-string, ExportFileGenerator> */
+	/** @var array<class-string, ExportFileGenerator|BatchedExportFileGenerator> */
 	private array $generators = [];
 
 	public function __construct(
@@ -77,6 +78,7 @@ final class Exporter
 		private readonly int $syncRowLimit,
 		private readonly string $downloadLink,
 		private readonly ?string $memoryLimit = null,
+		private readonly int $batchSize = 500,
 	) {}
 
 	public function export(ExportRequest $request): Export
@@ -115,7 +117,7 @@ final class Exporter
 		});
 
 		if (!$export->isInBackground()) {
-			$this->generateFile($export, $request->generator);
+			$export = $this->generateFile($export, $request->generator);
 			$this->markProcessed($export);
 		}
 
@@ -153,6 +155,11 @@ final class Exporter
 	 */
 	public function processExport(int $exportId): void
 	{
+		// Limit zvedame drive nez cokoli jineho: uz samo nacteni provozniho zaznamu
+		// json_decoduje sloupec `sections`, ktery u velkych exportu obsahuje desitky
+		// tisic ID. Uvnitr generovani (jako driv) by to bylo pozde.
+		$this->raiseMemoryLimit();
+
 		/** @var Export $export */
 		$export = $this->em->getRepository($this->em->findEntityClassByInterface(Export::class))
 			->find($exportId);
@@ -160,7 +167,7 @@ final class Exporter
 			return; // idempotence pri retry
 		}
 
-		$this->generateFile($export, $this->resolveGenerator($export->getGenerator()));
+		$export = $this->generateFile($export, $this->resolveGenerator($export->getGenerator()));
 
 		if ($export->getEmail()) {
 			// obsah e-mailu vlastni projekt (ExportMailFactory); odkaz vede na
@@ -220,7 +227,7 @@ final class Exporter
 	}
 
 	/** @internal registrace generatoru z DI (viz ExporterExtension) */
-	public function addGenerator(ExportFileGenerator $generator): void
+	public function addGenerator(ExportFileGenerator|BatchedExportFileGenerator $generator): void
 	{
 		$this->generators[get_class($generator)] = $generator;
 	}
@@ -234,47 +241,136 @@ final class Exporter
 		$this->em->flush();
 	}
 
-	private function generateFile(Export $export, ExportFileGenerator $generator): void
+	/**
+	 * Vraci provozni zaznam, se kterym se ma pokracovat. U davkove cesty se totiz
+	 * mezi davkami cisti EntityManager, takze puvodni instance je uz odpojena a
+	 * metoda vraci znovu nactenou - viz loadExport().
+	 */
+	private function generateFile(Export $export, ExportFileGenerator|BatchedExportFileGenerator $generator): Export
 	{
-		// Limit rozhoduje projekt, ne knihovna: generovani bezi i synchronne v HTTP requestu
-		// a zvednuti na nekolik GB tam znamena, ze jeden velky export sundá stroj misto toho,
-		// aby cisté selhal. Zustava v platnosti do konce procesu, u workeru tedy i pro dalsi joby.
-		if ($this->memoryLimit !== null) {
-			ini_set('memory_limit', $this->memoryLimit);
-		}
+		$this->raiseMemoryLimit();
 
-		$sections = [];
-		foreach ($export->getSections() as $section) {
-			if ($section['rows'] !== null) {
-				$sections[$section['name']] = ['items' => $section['rows'], 'columns' => $section['columns']];
-				continue;
-			}
-			// nacteni po davkach dle ulozenych ids - poradi dle ids zachovano
-			$items = [];
-			foreach (array_chunk($section['ids'], 5000) as $chunk) {
-				foreach ($this->em->getRepository($section['entityClass'])
-					->createQueryBuilder('e')->where('e.id IN (:ids)')->setParameter('ids', $chunk)
-					->getQuery()->getResult() as $item) {
-					$items[(string) $item->getId()] = $item;
-				}
-			}
-			$ordered = [];
-			foreach ($section['ids'] as $id) {
-				if (isset($items[(string) $id])) {
-					$ordered[] = $items[(string) $id];
-				}
-			}
-			$sections[$section['name']] = ['items' => $ordered, 'columns' => $section['columns']];
-		}
+		if ($generator instanceof BatchedExportFileGenerator) {
+			// Cistit EM smi jen worker. V HTTP requestu bezi synchronni export
+			// pod stropem syncRowLimit (pamet tam tedy problem neni) a odpojit
+			// pritom presenteru, prihlasenemu uzivateli a flash zpravam jejich
+			// entity by nadelalo vic skody nez uzitku.
+			$clear = $export->isInBackground();
+			$exportId = $export->getId();
 
-		$tmpPath = $generator->generate($sections, $export->getIdentifier());
+			$sections = [];
+			foreach ($export->getSections() as $section) {
+				$sections[$section['name']] = [
+					'batches' => $this->sectionBatches($section, $clear),
+					'columns' => $section['columns'],
+				];
+			}
+
+			$tmpPath = $generator->generateBatched($sections, $export->getIdentifier());
+
+			if ($clear) {
+				$export = $this->loadExport($exportId);
+			}
+		} else {
+			$sections = [];
+			foreach ($export->getSections() as $section) {
+				if ($section['rows'] !== null) {
+					$sections[$section['name']] = ['items' => $section['rows'], 'columns' => $section['columns']];
+					continue;
+				}
+				// nacteni po davkach dle ulozenych ids - poradi dle ids zachovano
+				$items = [];
+				foreach (array_chunk($section['ids'], $this->batchSize) as $chunk) {
+					foreach ($this->em->getRepository($section['entityClass'])
+						->createQueryBuilder('e')->where('e.id IN (:ids)')->setParameter('ids', $chunk)
+						->getQuery()->getResult() as $item) {
+						$items[(string) $item->getId()] = $item;
+					}
+				}
+				$ordered = [];
+				foreach ($section['ids'] as $id) {
+					if (isset($items[(string) $id])) {
+						$ordered[] = $items[(string) $id];
+					}
+				}
+				$sections[$section['name']] = ['items' => $ordered, 'columns' => $section['columns']];
+			}
+
+			$tmpPath = $generator->generate($sections, $export->getIdentifier());
+		}
 
 		$export->setFileName(basename($tmpPath));
 		$this->fileStorage->attach($export, $tmpPath);
 		$this->em->flush();
+
+		return $export;
 	}
 
-	private function resolveGenerator(string $class): ExportFileGenerator
+	/**
+	 * Davky jedne sekce. Snapshot sekce (agregat ulozeny v auditu) zadne entity
+	 * nema, takze jde jednou davkou; u entitnich sekci se po kazde davce uvolni
+	 * nactene entity i jejich navazany graf.
+	 *
+	 * @return Generator<array>
+	 */
+	private function sectionBatches(array $section, bool $clear): Generator
+	{
+		if ($section['rows'] !== null) {
+			yield $section['rows'];
+			return;
+		}
+
+		foreach (array_chunk($section['ids'], $this->batchSize) as $chunk) {
+			$items = [];
+			foreach ($this->em->getRepository($section['entityClass'])
+				->createQueryBuilder('e')->where('e.id IN (:ids)')->setParameter('ids', $chunk)
+				->getQuery()->getResult() as $item) {
+				$items[(string) $item->getId()] = $item;
+			}
+
+			// poradi dle ulozene selekce
+			$ordered = [];
+			foreach ($chunk as $id) {
+				if (isset($items[(string) $id])) {
+					$ordered[] = $items[(string) $id];
+				}
+			}
+			unset($items);
+
+			yield $ordered;
+
+			unset($ordered);
+			if ($clear) {
+				// Doctrine 3 nema clear($class) a detach() nekaskaduje, takze
+				// navazany graf (u polozky objednavky treba Order -> Device,
+				// Shift, Identity, Product) uvolni jedine cely clear.
+				$this->em->clear();
+			}
+		}
+	}
+
+	private function loadExport(int $exportId): Export
+	{
+		/** @var Export $export */
+		$export = $this->em->getRepository($this->em->findEntityClassByInterface(Export::class))
+			->find($exportId);
+
+		return $export;
+	}
+
+	/**
+	 * Limit rozhoduje projekt, ne knihovna: generovani bezi i synchronne v HTTP requestu
+	 * a zvednuti na nekolik GB tam znamena, ze jeden velky export sundá stroj misto toho,
+	 * aby cisté selhal. Zustava v platnosti do konce procesu, u workeru tedy i pro dalsi joby.
+	 */
+	private function raiseMemoryLimit(): void
+	{
+		if ($this->memoryLimit !== null) {
+			ini_set('memory_limit', $this->memoryLimit);
+		}
+	}
+
+	private function resolveGenerator(string $class): ExportFileGenerator|BatchedExportFileGenerator
 	{
 		return $this->generators[$class]
 			?? throw new \RuntimeException("Export generator '$class' neni registrovany jako sluzba.");
